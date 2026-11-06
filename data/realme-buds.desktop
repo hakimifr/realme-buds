@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=realme Buds
+Comment=Control realme Buds Air7 Pro without the phone app
+Exec=realme-buds-gui
+Icon=audio-headphones
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+Keywords=earbuds;realme;noise cancellation;

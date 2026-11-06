@@ -9,10 +9,10 @@ import sys
 import time
 from typing import Iterator
 
-from . import model, protocol
+from . import model
 from .client import Buds, BudsError, State
-from .sim import connected_pair
-from .transport import TransportError, connect_rfcomm, list_devices, pick_device
+from .session import connect_buds
+from .transport import TransportError, list_devices
 
 EXPERIMENTAL = "(experimental: not yet confirmed on real Air7 Pro hardware)"
 
@@ -29,18 +29,13 @@ def open_buds(args: argparse.Namespace) -> Iterator[Buds]:
         def trace(direction: str, data: bytes) -> None:
             print(f"{direction} {data.hex(' ').upper()}", file=sys.stderr)
 
-    if args.sim:
-        sock, _sim = connected_pair()
-    else:
-        try:
-            dev = pick_device(args.addr)
-            sock = connect_rfcomm(dev.addr, args.channel)
-        except TransportError as e:
-            raise CliError(str(e)) from e
-    buds = Buds(sock, trace=trace)
-    buds.start()
     try:
-        buds.initialise()
+        buds = connect_buds(args.addr, args.channel, args.sim, trace)
+    except TransportError as e:
+        raise CliError(str(e)) from e
+    except TimeoutError as e:
+        raise CliError(f"the buds did not answer ({e}). Are they in the case or connected elsewhere?") from e
+    try:
         yield buds
     except TimeoutError as e:
         raise CliError(f"the buds did not answer ({e}). Are they in the case or connected elsewhere?") from e
