@@ -258,6 +258,37 @@ def _need(usage: str):
     raise CliError(f"usage: realme-buds {usage}")
 
 
+BAND_NAMES = {"low": 1, "bass": 1, "mid": 2, "high": 3, "treble": 3}
+BAND_USAGE = "use 'on', 'off', three numbers (low mid high) or band/value pairs like: low +2 high -1 (each -5..5)"
+
+
+def parse_band_args(values: list[str]) -> dict[int, int]:
+    """``2 0 -1`` (low mid high) or ``low +2 high=-1`` -> {band: value}."""
+    tokens: list[str] = []
+    for v in values:
+        for sep in ("=", ":"):
+            if sep in v:
+                tokens.extend(v.split(sep, 1))
+                break
+        else:
+            tokens.append(v)
+    try:
+        if all(t.lstrip("+-").isdigit() for t in tokens):
+            if len(tokens) != 3:
+                raise CliError("give three values (low mid high), or name the bands: low +2 high -1")
+            return {band: int(t) for band, t in zip((1, 2, 3), tokens)}
+        if len(tokens) % 2:
+            raise CliError(BAND_USAGE)
+        out: dict[int, int] = {}
+        for name, num in zip(tokens[0::2], tokens[1::2]):
+            if name.lower() not in BAND_NAMES:
+                raise CliError(f"unknown band {name!r}; use low, mid or high")
+            out[BAND_NAMES[name.lower()]] = int(num)
+        return out
+    except ValueError as e:
+        raise CliError(BAND_USAGE) from e
+
+
 def cmd_dynamic_audio(args) -> int:
     values = args.values
     with open_buds(args) as buds:
@@ -274,13 +305,8 @@ def cmd_dynamic_audio(args) -> int:
             raise CliError("these buds do not report dynamic audio bands")
         if values:
             print(EXPERIMENTAL, file=sys.stderr)
-            try:
-                wanted = [int(v) for v in values]
-            except ValueError as e:
-                raise CliError("use 'on', 'off' or three numbers: low mid high (each -5..5)") from e
-            if len(wanted) != 3:
-                raise CliError("give three values: low mid high (each -5..5)")
-            for band, value in zip((1, 2, 3), wanted):
+            wanted = parse_band_args(values)
+            for band, value in wanted.items():
                 if next((b.value for b in bands if b.band == band), None) != value:
                     try:
                         bands = buds.set_dynamic_band(band, value)
@@ -379,7 +405,11 @@ def cmd_raw(args) -> int:
     except ValueError as e:
         raise CliError("cmd and payload must be hex, e.g. raw 0106 or raw 010c 0101") from e
     with open_buds(args) as buds:
-        pkt = buds.request(cmd, payload, ok=False)
+        try:
+            pkt = buds.request(cmd, payload, ok=False, timeout=3.0)
+        except TimeoutError:
+            print("no reply within 3 s (some writes are applied without an acknowledgement; read the value back to check)")
+            return 0
         print(f"reply 0x{pkt.cmd:04X} status={pkt.status}: {pkt.payload.hex(' ')}")
     return 0
 
@@ -420,8 +450,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("args", nargs="*")
     p.set_defaults(func=cmd_eq)
 
-    p = sub.add_parser("dynamic-audio", help="dynamic-audio [on|off | LOW MID HIGH (-5..5)]; no argument shows the bands")
-    p.add_argument("values", nargs="*")
+    p = sub.add_parser("dynamic-audio", help="no argument: show the bands. on|off: the engine. Numbers -5..5: 'dynamic-audio 2 0 -1' sets low, mid, high; 'dynamic-audio low +2' or 'high -1 mid 3' sets only the bands named")
+    p.description = "Show or change the Dynamic audio bands (each -5..5)."
+    p.epilog = (
+        "examples:\n"
+        "  realme-buds dynamic-audio                  show the three bands\n"
+        "  realme-buds dynamic-audio 2 0 -1           low=+2 mid=0 high=-1\n"
+        "  realme-buds dynamic-audio low +2           only change low\n"
+        "  realme-buds dynamic-audio high -1 mid 3    several named bands\n"
+        "  realme-buds dynamic-audio off              switch the engine off (or: on)"
+    )
+    p.formatter_class = argparse.RawDescriptionHelpFormatter
+    p.add_argument("values", nargs="*", metavar="value", help="on | off | three numbers | band/number pairs (bands: low, mid, high)")
     p.set_defaults(func=cmd_dynamic_audio)
 
     sub.add_parser("gestures", help="show touch controls").set_defaults(func=cmd_gestures)

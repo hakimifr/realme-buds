@@ -34,6 +34,7 @@ class FakeBuds:
         self.send_time_request = True
         self.fragment_replies = False  # split large replies like the real buds can
         self.ignore_commands: set[int] = set()  # never answer these (simulates absent features)
+        self.silent_commands: set[int] = set()  # apply these but send no ack, like the Air7 Pro does for some writes
         # Defaults follow a capture of a real Air7 Pro: it offers only battery and wearing
         # pushes and never acknowledges the subscription. Pass offered_codes=[1,2,3,5] and
         # ack_subscribe=True for firmware that does both.
@@ -131,6 +132,8 @@ class FakeBuds:
     # -- command handling -------------------------------------------------
 
     def _reply(self, pkt: Packet, payload: bytes) -> None:
+        if pkt.cmd in self.silent_commands:
+            return
         self._send(pkt.cmd | protocol.RESPONSE_BIT, pkt.seq, payload)
 
     def _handle(self, pkt: Packet) -> None:

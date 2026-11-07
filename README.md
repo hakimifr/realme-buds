@@ -68,7 +68,8 @@ realme-buds spatial on
 realme-buds game-mode on                 # also: wear-detect, auto-answer, enhance-voices,
                                          #       dual, lhdc, wind
 realme-buds eq set deep-bass             # pure-raw | deep-bass | pure-voice | pure-bass
-realme-buds dynamic-audio 2 0 -1         # low mid high, -5..5   (or: on | off)
+realme-buds dynamic-audio 2 0 -1         # three numbers = low, mid, high (-5..5)
+realme-buds dynamic-audio low +2         # or just the bands you name; also: on | off
 realme-buds gestures                     # show the touch table
 realme-buds gesture left double next     # side, double|triple|hold, function
 realme-buds hold-cycle off,transparency,anc

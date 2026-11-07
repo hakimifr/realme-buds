@@ -88,6 +88,7 @@ class Buds:
         self._seq = 0
         self._closing = False
         self._reader: threading.Thread | None = None
+        self.last_write_acked = True
 
     # -- lifecycle --------------------------------------------------------
 
@@ -168,6 +169,25 @@ class Buds:
         finally:
             with self._pending_lock:
                 self._pending.pop(seq, None)
+
+    def _write(self, cmd: int, payload: bytes = b"", *, timeout: float = 1.5) -> bool:
+        """Send a write and wait briefly for its ack. Returns whether one arrived.
+
+        Some firmware applies a write without acknowledging it (the Air7 Pro does this for
+        the subscription and, it seems, Dynamic audio), so a missing ack is not an error.
+        A refusal (non-zero status) still raises. Callers confirm by reading the value back.
+        """
+        try:
+            self.request(cmd, payload, timeout=timeout)
+        except TimeoutError:
+            self.last_write_acked = False
+            return False
+        self.last_write_acked = True
+        return True
+
+    def _verify_failed(self, message: str) -> VerifyFailed:
+        hint = "" if self.last_write_acked else " The buds did not acknowledge the write either, so they may expect a different payload."
+        return VerifyFailed(message + hint)
 
     def _read_loop(self) -> None:
         while not self._closing:
@@ -437,11 +457,11 @@ class Buds:
         lo, hi = model.DYNAMIC_RANGE
         if band not in model.DYNAMIC_BANDS or not lo <= value <= hi:
             raise ValueError(f"band must be 1-3 and value {lo}..{hi}")
-        self.request(protocol.CMD_DYNAMIC_AUDIO_WRITE, parsing.encode_dynamic_band(band, value, lo, hi))
+        self._write(protocol.CMD_DYNAMIC_AUDIO_WRITE, parsing.encode_dynamic_band(band, value, lo, hi))
         bands = self.read_dynamic_audio()
         got = next((b.value for b in bands if b.band == band), None)
         if got != value:
-            raise VerifyFailed(f"dynamic audio band {band}: wanted {value}, buds report {got!r}")
+            raise self._verify_failed(f"dynamic audio band {band}: wanted {value}, buds report {got!r}")
         return bands
 
     def save_custom_eq(self, eq_id: int, name: str, bands: list[tuple[int, int]]) -> list[parsing.CustomEq]:
@@ -452,31 +472,34 @@ class Buds:
         if not 1 <= len(name.encode()) <= 32:
             raise ValueError("custom EQ name must be 1-32 bytes")
         action = 2 if eq_id else 1
-        self.request(
+        self._write(
             protocol.CMD_CUSTOM_EQ_WRITE,
             parsing.encode_custom_eq(action, eq_id or 0, name, bands, (lo, hi)),
             timeout=4.0,
         )
         eqs = self.read_custom_eqs()
         self.read_eq()
+        if not any(e.name == name and list(e.bands) == [tuple(b) for b in bands] for e in eqs):
+            raise self._verify_failed(f"custom EQ {name!r} is not on the buds after the write")
         return eqs
 
     def delete_custom_eq(self, eq_id: int) -> list[parsing.CustomEq]:
-        self.request(protocol.CMD_CUSTOM_EQ_WRITE, parsing.encode_custom_eq(3, eq_id, "", []), timeout=4.0)
+        self._write(protocol.CMD_CUSTOM_EQ_WRITE, parsing.encode_custom_eq(3, eq_id, "", []), timeout=4.0)
         eqs = self.read_custom_eqs()
         self.read_eq()
+        if any(e.id == eq_id for e in eqs):
+            raise self._verify_failed(f"custom EQ {eq_id} is still on the buds after deleting it")
         return eqs
 
-
     def set_anc(self, mask: int) -> int | None:
-        self.request(protocol.CMD_ANC_WRITE, b"\x01\x01" + protocol.mask_to_bytes(mask))
+        self._write(protocol.CMD_ANC_WRITE, b"\x01\x01" + protocol.mask_to_bytes(mask))
         got = self.read_anc()
         if got != mask:
-            raise VerifyFailed(f"asked for noise mode 0x{mask:02X}, buds report {got!r}")
+            raise self._verify_failed(f"asked for noise mode 0x{mask:02X}, buds report {got!r}")
         return got
 
     def set_feature(self, feature_id: int, on: bool, *, verify: bool = True) -> bool | None:
-        self.request(protocol.CMD_FEATURE_WRITE, bytes([feature_id, 1 if on else 0]))
+        self._write(protocol.CMD_FEATURE_WRITE, bytes([feature_id, 1 if on else 0]))
         with self._state_lock:
             self.state.features[feature_id] = on
         if not verify:
@@ -484,7 +507,7 @@ class Buds:
             return on
         got = self.read_features([feature_id]).get(feature_id)
         if got is not None and got != on:
-            raise VerifyFailed(f"feature 0x{feature_id:02X}: wanted {on}, buds report {got}")
+            raise self._verify_failed(f"feature 0x{feature_id:02X}: wanted {on}, buds report {got}")
         return got
 
     def set_spatial(self, on: bool) -> bool | None:
@@ -497,19 +520,19 @@ class Buds:
         return self.set_feature(0x1B, on)
 
     def set_eq_preset(self, preset_id: int) -> int | None:
-        self.request(protocol.CMD_EQ_SELECT, bytes([preset_id]))
+        self._write(protocol.CMD_EQ_SELECT, bytes([preset_id]))
         got = self.read_eq()
         if got != preset_id:
-            raise VerifyFailed(f"asked for EQ preset {preset_id}, buds report {got!r}")
+            raise self._verify_failed(f"asked for EQ preset {preset_id}, buds report {got!r}")
         return got
 
     def set_hold_cycle(self, mask: int) -> int | None:
         if mask == 0:
             raise ValueError("the hold gesture needs at least one mode to cycle through")
-        self.request(protocol.CMD_ANC_WRITE, b"\x02\x01" + protocol.mask_to_bytes(mask))
+        self._write(protocol.CMD_ANC_WRITE, b"\x02\x01" + protocol.mask_to_bytes(mask))
         got = self.read_hold_cycle()
         if got != mask:
-            raise VerifyFailed(f"asked for hold cycle 0x{mask:02X}, buds report {got!r}")
+            raise self._verify_failed(f"asked for hold cycle 0x{mask:02X}, buds report {got!r}")
         return got
 
     def set_gesture(self, side: int, action: int, fn: int) -> list[GestureEntry]:
@@ -527,13 +550,13 @@ class Buds:
                 f"(table has: {sorted({(e.dev, e.act) for e in table})})"
             )
         payload = bytes([len(slots)]) + b"".join(bytes([e.dev, e.btn, e.act, fn]) for e in slots)
-        self.request(protocol.CMD_GESTURE_WRITE, payload)
+        self._write(protocol.CMD_GESTURE_WRITE, payload)
         after = self.read_gestures()
         for e in slots:
             now = [x for x in after if (x.dev, x.btn, x.act) == (e.dev, e.btn, e.act)]
             if not now or any(x.fn != fn and not (x.fn == model.FN_ANC_CYCLE and fn == model.FN_NONE) for x in now):
-                raise VerifyFailed(f"gesture {e.dev}/{e.btn}/{e.act} did not take function 0x{fn:02X}")
+                raise self._verify_failed(f"gesture {e.dev}/{e.btn}/{e.act} did not take function 0x{fn:02X}")
         return after
 
     def find_buds(self, on: bool) -> None:
-        self.request(protocol.CMD_FIND, b"\x01" if on else b"\x00")
+        self._write(protocol.CMD_FIND, b"\x01" if on else b"\x00")

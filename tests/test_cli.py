@@ -119,3 +119,27 @@ def test_every_anc_mode_and_feature_name_parses():
     for f in model.FEATURES:
         if f.key != "dynamic-audio":
             assert ap.parse_args([f.key, "on"]).state is True
+
+
+def test_band_argument_forms():
+    f = cli.parse_band_args
+    assert f(["2", "0", "-1"]) == {1: 2, 2: 0, 3: -1}
+    assert f(["low", "+2"]) == {1: 2}
+    assert f(["low", "+2", "high", "-1"]) == {1: 2, 3: -1}
+    assert f(["bass=3", "treble:-2"]) == {1: 3, 3: -2}
+    for bad in (["1", "2"], ["low"], ["loud", "2"], ["low", "x"]):
+        with pytest.raises(cli.CliError):
+            f(bad)
+
+
+def test_dynamic_audio_by_band_name(sim, capsys):
+    code, out, _ = run(capsys, "dynamic-audio", "low", "+2")
+    assert code == 0 and "Low freq +2" in out and "Mid freq +0" in out
+    code, out, _ = run(capsys, "dynamic-audio", "high", "-1", "mid", "3")
+    assert "Mid freq +3" in out and "High freq -1" in out and "Low freq +2" in out
+
+
+def test_raw_reports_missing_reply_without_failing(sim, capsys):
+    sim["kwargs"] = {"ignore_commands": {0x041B}}
+    code, out, _ = run(capsys, "raw", "041b", "fb050201")
+    assert code == 0 and "no reply" in out

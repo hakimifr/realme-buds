@@ -281,3 +281,27 @@ def test_commands_the_buds_do_not_advertise_are_never_sent(pair):
     assert not sent & {0x0122, 0x0124, 0x012C, 0x041E}
     assert errors == {} and buds.state.custom_eqs == [] and buds.state.dynamic_audio == []
     assert buds.supports(0x0108) and not buds.supports(0x0418) and buds.supports(0x9999)
+
+
+def test_write_the_buds_apply_without_acknowledging_still_succeeds(pair):
+    buds, sim = pair(silent_commands={protocol.CMD_DYNAMIC_AUDIO_WRITE})
+    buds.request_timeout = 0.5
+    buds.initialise()
+    bands = buds.set_dynamic_band(2, 4)
+    assert sim.dynamic[2] == 4 and [b.value for b in bands if b.band == 2] == [4]
+    assert buds.last_write_acked is False
+
+
+def test_write_that_is_neither_acknowledged_nor_applied_says_so(pair):
+    buds, sim = pair(ignore_commands={protocol.CMD_DYNAMIC_AUDIO_WRITE})
+    buds.initialise()
+    with pytest.raises(VerifyFailed, match="did not acknowledge"):
+        buds.set_dynamic_band(1, 3)
+    assert sim.dynamic[1] == 0
+
+
+def test_a_refusal_is_still_an_error_not_a_silent_pass(pair):
+    buds, sim = pair()
+    buds.initialise()
+    with pytest.raises(Nack):
+        buds.set_feature(0x30, True)
