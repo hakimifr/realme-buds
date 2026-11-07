@@ -4,10 +4,10 @@ Control realme Buds Air7 Pro from your laptop: noise control, spatial audio, gam
 mode, EQ, Dynamic audio, touch controls and more. No phone, no realme Link, no
 account. A command line tool and a GTK4 app, both on top of the same small library.
 
-> **Read this first.** The code was written and tested on a server with no Bluetooth,
-> against a simulator built from public protocol notes. Nothing here has talked to a
-> real pair of buds yet. The first run on your laptop is the real test, so there is a
-> checklist below.
+> **Read this first.** The code was written on a server with no Bluetooth and tested
+> against a simulator built from public protocol notes. The first connection to a real
+> Air7 Pro (captured 2026-11-07) fixed one bug and is now part of the tests, but most
+> commands have still not been tried on real buds. The checklist below is how to find out.
 
 ## What works
 

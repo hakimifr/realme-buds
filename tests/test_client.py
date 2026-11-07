@@ -52,11 +52,31 @@ def test_initialise_and_sync_fill_the_state(pair):
     assert [b.band for b in st.dynamic_audio] == [1, 2, 3]
 
 
-def test_subscribe_payload_has_count_first(pair):
+def test_subscribe_payload_has_count_first_and_only_offered_codes(pair):
+    # Behaviour of the real Air7 Pro: offers wearing and battery, never acks the subscription.
     buds, sim = pair()
     buds.initialise()
     sub = next(p for p in sim.received if p.cmd == protocol.CMD_SUBSCRIBE)
+    assert sub.payload == bytes([2, 1, 2])
+    assert buds.needs_polling
+
+
+def test_firmware_that_offers_everything_and_acks(pair):
+    buds, sim = pair(offered_codes=[1, 2, 3, 5], ack_subscribe=True)
+    buds.initialise()
+    sub = next(p for p in sim.received if p.cmd == protocol.CMD_SUBSCRIBE)
     assert sub.payload == bytes([4, 1, 2, 3, 5])
+    assert not buds.needs_polling
+
+
+def test_poll_picks_up_changes_made_on_the_buds_without_a_push(pair):
+    buds, sim = pair()
+    buds.initialise()
+    buds.sync()
+    sim.anc = model.ANC_MAX  # touched on the bud; nothing is pushed
+    sim.features[0x06] = True
+    buds.poll()
+    assert buds.state.anc == model.ANC_MAX and buds.state.features[0x06] is True
 
 
 def test_buds_time_request_is_answered(pair):
@@ -248,3 +268,16 @@ def test_concurrent_requests_get_their_own_replies(pair):
     [t.join(3) for t in threads]
     assert results["anc"] == model.ANC_TRANSPARENCY
     assert results["eq"] == 1 and len(results["gest"]) == 8 and results["bat"][1] == (70, False)
+
+
+def test_commands_the_buds_do_not_advertise_are_never_sent(pair):
+    # Bitmap with only bits 0-8 set: no custom EQ (34), no bass engine (38/54), no spatial source (43).
+    buds, sim = pair(capability_reply=bytes.fromhex("00 FF 01"))
+    buds.initialise()
+    errors = buds.sync()
+    sim.features[0x1B] = False
+    buds.set_spatial(True)
+    sent = {p.cmd for p in sim.received}
+    assert not sent & {0x0122, 0x0124, 0x012C, 0x041E}
+    assert errors == {} and buds.state.custom_eqs == [] and buds.state.dynamic_audio == []
+    assert buds.supports(0x0108) and not buds.supports(0x0418) and buds.supports(0x9999)

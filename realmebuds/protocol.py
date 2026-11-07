@@ -79,6 +79,22 @@ STATUS_OK = 0x00
 STATUS_NOT_WORN = 0x0E
 
 
+# Bit of the handshake's capability bitmap that enables each command we use. Bits 3, 7, 8,
+# 10, 34, 38, 43 and 54 are all set in a capture of a real Air7 Pro. Table taken from the
+# public protocol notes (MIT/GPL projects cited in docs/PROTOCOL.md).
+CAPABILITY_BIT = {
+    0x0108: 3, 0x0401: 3,
+    0x0400: 5,
+    0x010D: 7, 0x0403: 7,
+    0x010C: 8, 0x0404: 8,
+    0x010F: 10, 0x0406: 10,
+    0x0122: 34, 0x0418: 34,
+    0x0124: 38, 0x041B: 38,
+    0x041E: 43,
+    0x012C: 54,
+}
+
+
 class ProtocolError(Exception):
     pass
 

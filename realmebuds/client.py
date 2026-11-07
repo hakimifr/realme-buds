@@ -281,7 +281,27 @@ class Buds:
         if wanted:
             time.sleep(self.init_delay)
             # Payload is `<count> <ids>`. Never "01 <id> ...": that subscribes to one id only.
-            self.request(protocol.CMD_SUBSCRIBE, bytes([len(wanted), *wanted]), ok=False)
+            # The Air7 Pro never acknowledges this command, so a missing reply is normal.
+            try:
+                self.request(protocol.CMD_SUBSCRIBE, bytes([len(wanted), *wanted]), ok=False, timeout=0.7)
+            except TimeoutError:
+                pass
+
+    def supports(self, cmd: int) -> bool:
+        """Whether the buds' capability bitmap enables ``cmd``. Unknown commands and a
+        missing bitmap count as supported, so this can only ever skip a request."""
+        bit = protocol.CAPABILITY_BIT.get(cmd)
+        return bit is None or not self.state.capabilities or bit in self.state.capabilities
+
+    @property
+    def needs_polling(self) -> bool:
+        """True when the buds do not push noise-control changes, so a front end must ask."""
+        return protocol.EV_ANC not in self.state.broadcast_codes
+
+    def poll(self) -> None:
+        """Re-read what the buds would have pushed had they offered to. Cheap, two requests."""
+        self.read_anc()
+        self.read_features([f.id for f in model.FEATURES if f.id in self.state.features] or None)
 
     def sync(self) -> dict[str, str]:
         """Read everything the UI shows. Returns {what: error} for reads that failed."""
@@ -298,7 +318,13 @@ class Buds:
             ("custom-eq", self.read_custom_eqs),
             ("dynamic-audio", self.read_dynamic_audio),
         ]
+        optional = {
+            "custom-eq": self.supports(protocol.CMD_CUSTOM_EQ_LIST),
+            "dynamic-audio": self.supports(protocol.CMD_DYNAMIC_AUDIO_BANDS) or self.supports(protocol.CMD_DYNAMIC_AUDIO_SINGLE),
+        }
         for name, fn in steps:
+            if not optional.get(name, True):
+                continue
             time.sleep(self.init_delay)
             try:
                 fn()
@@ -385,6 +411,8 @@ class Buds:
         """Three-band engine (0x012C); older firmware answers on 0x0124 instead."""
         bands: list[parsing.DynamicBand] = []
         for cmd in (protocol.CMD_DYNAMIC_AUDIO_BANDS, protocol.CMD_DYNAMIC_AUDIO_SINGLE):
+            if not self.supports(cmd):
+                continue
             try:
                 bands = parsing.parse_dynamic_audio(self.request(cmd, timeout=1.5).payload)
             except (Nack, TimeoutError):
@@ -460,7 +488,7 @@ class Buds:
         return got
 
     def set_spatial(self, on: bool) -> bool | None:
-        if on:
+        if on and self.supports(protocol.CMD_SPATIAL_SOURCE):
             try:
                 # realme Link tells the buds to render 3D audio themselves (00) rather than the phone (01).
                 self.request(protocol.CMD_SPATIAL_SOURCE, b"\x00")

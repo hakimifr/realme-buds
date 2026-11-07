@@ -361,8 +361,12 @@ def cmd_watch(args) -> int:
 
         buds.add_listener(on_event)
         try:
+            ticks = 0
             while buds.state.connected:
                 time.sleep(0.5)
+                ticks += 1
+                if buds.needs_polling and ticks % 6 == 0:  # these buds do not push noise-control changes
+                    buds.poll()
         except KeyboardInterrupt:
             pass
     return 0

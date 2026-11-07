@@ -46,7 +46,9 @@ AA  <TotalLen>  00 00  <Cmd:2 LE>  <Seq:1>  <PayLen:2 LE>  <Payload>
 ```
 
 - `TotalLen` is LEB128 and equals `7 + PayLen`. A 124-byte payload is `AA 83 01 ...`.
-- Replies use `cmd | 0x8000` and echo `Seq`. Pushes from the buds use `Seq = 0xFF`.
+- Replies use `cmd | 0x8000` and echo `Seq`. Pushes from the buds are plain packets (command
+  without the reply bit), and on the real Air7 Pro they carry ordinary incrementing seq numbers
+  (`0x18`, `0x19`, ...), not `0xFF`. Never classify a push by its seq.
 - The first payload byte of a reply is a status, `00` for success. `0E` means no bud
   is in an ear (noise control refuses to change).
 - Big replies may be fragmented: the byte after `AA <len>` has bit 0-1 set (1 first,
@@ -67,11 +69,29 @@ AA 0C 00 00 04 02 FF 05 00 03 01 01 08 00  push: noise control changed
 2. `0x0103` product id.
 3. `0x0200` which push codes the buds offer, then `0x0205` subscribe with
    `<count> <ids>`. The count comes first. `01 01 02 02` subscribes to battery only.
+   **The Air7 Pro never replies to `0x0205`**, so a missing reply is normal there.
+   The real buds offered only `02 01` (wearing, battery). Noise control and game mode
+   are therefore not pushed, and the app polls for them every few seconds.
 4. The buds send `0x0500` (time request) with their own seq. **It must be answered**
    with `00 <unix seconds u32 LE>` or some firmwares reset the link a few seconds later.
    Other requests from the buds and the answers are in `protocol.answer_for`.
 
 Nothing needs polling afterwards: battery, wearing, noise control and game mode are pushed.
+
+## Captured from a real Air7 Pro
+
+First contact, 2026-11-07, from `realme-buds --trace status` (all reproduced as tests in
+`tests/test_real_capture.py`):
+
+- Product id reply `00 12 4C 06`, i.e. product id `064C12`.
+- Capability bitmap `00 BF 4F 5A E6 65 DC 40 04` (32 bits set). It enables gestures (3),
+  feature switches (7), noise control (8), EQ select (10), custom EQ (34), bass engine (38),
+  spatial source (43) and the multi-band bass engine (54). Not set: 56, the batch query.
+  The client skips commands whose bit is clear.
+- Unprompted on connect: wearing push `02 03 01 03 02 03 03 04` and battery push
+  `01 03 01 50 02 64 03 00` (left 80%, right 100%, case unknown).
+- The buds send `0x0500` with payload `AC 01 00 00` right after the handshake reply and
+  expect `00 <unix time u32 LE>` back.
 
 ## Commands used
 

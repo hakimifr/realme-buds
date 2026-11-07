@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import Any, Callable
 
 from .client import Buds, State, Trace
@@ -56,8 +57,10 @@ class Session:
         on_status: StatusCallback,
         on_event: EventCallback,
         retry_delay: float = 3.0,
+        poll_interval: float = 4.0,
     ) -> None:
         self._connector = connector
+        self._poll_interval = poll_interval
         self._on_status = on_status
         self._on_event = on_event
         self._retry_delay = retry_delay
@@ -104,10 +107,18 @@ class Session:
             self.buds = buds
             self._on_status("connected", "")
             self._on_event("synced", buds.state)
+            last_poll = time.monotonic()
             while buds.state.connected and not self._stop.is_set():
                 try:
                     fn, done = self._jobs.get(timeout=0.2)
                 except queue.Empty:
+                    # Some buds never push noise-control changes, so ask now and then.
+                    if buds.needs_polling and time.monotonic() - last_poll >= self._poll_interval:
+                        last_poll = time.monotonic()
+                        try:
+                            buds.poll()
+                        except Exception:
+                            pass  # a failed poll must not end the session; a dead link ends the loop
                     continue
                 try:
                     result, error = fn(buds), None

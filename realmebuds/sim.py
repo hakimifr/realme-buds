@@ -34,6 +34,14 @@ class FakeBuds:
         self.send_time_request = True
         self.fragment_replies = False  # split large replies like the real buds can
         self.ignore_commands: set[int] = set()  # never answer these (simulates absent features)
+        # Defaults follow a capture of a real Air7 Pro: it offers only battery and wearing
+        # pushes and never acknowledges the subscription. Pass offered_codes=[1,2,3,5] and
+        # ack_subscribe=True for firmware that does both.
+        self.offered_codes = [2, 1]
+        self.ack_subscribe = False
+        self._push_seq = 0x17
+        # Capability bitmap from the same capture (reply payload: status, then 8 bytes).
+        self.capability_reply = bytes.fromhex("00 BF 4F 5A E6 65 DC 40 04")
 
         # Device state.
         self.battery = {1: 70, 2: 68, 3: 0}
@@ -97,7 +105,9 @@ class FakeBuds:
         return out
 
     def push(self, payload: bytes) -> None:
-        self._send(protocol.CMD_PUSH, protocol.PUSH_SEQ, payload)
+        # The real buds number their pushes (seen: 0x18, 0x19, ...) rather than using 0xFF.
+        self._push_seq = self._push_seq % 0xFE + 1
+        self._send(protocol.CMD_PUSH, self._push_seq, payload)
 
     def _loop(self) -> None:
         if self.send_time_request:
@@ -134,7 +144,7 @@ class FakeBuds:
         c, p = pkt.cmd, pkt.payload
         ok = b"\x00"
         if c == protocol.CMD_HANDSHAKE:
-            self._reply(pkt, b"\x00\xff\x77\x5a\xea\x67\x0e\x20\x07")
+            self._reply(pkt, self.capability_reply)
         elif c == protocol.CMD_PRODUCT_ID:
             self._reply(pkt, b"\x00\x14\x54\x06")
         elif c == protocol.CMD_FIRMWARE:
@@ -145,9 +155,10 @@ class FakeBuds:
         elif c == protocol.CMD_WEARING:
             self._reply(pkt, b"\x00" + bytes([len(self.wearing)]) + b"".join(bytes([k, v]) for k, v in self.wearing.items()))
         elif c == protocol.CMD_BROADCAST_CODES:
-            self._reply(pkt, b"\x00\x05\x01\x02\x03\x04\x05")
+            self._reply(pkt, b"\x00" + bytes([len(self.offered_codes), *self.offered_codes]))
         elif c == protocol.CMD_SUBSCRIBE:
-            self._reply(pkt, ok)
+            if self.ack_subscribe:
+                self._reply(pkt, ok)
         elif c == protocol.CMD_ANC_QUERY:
             if p == b"\x01\x01":
                 self._reply(pkt, b"\x00\x01\x01" + protocol.mask_to_bytes(self.anc))

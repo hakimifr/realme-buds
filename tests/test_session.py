@@ -14,11 +14,11 @@ def wait_for(cond, timeout=5.0):
     return False
 
 
-def make_session(connector=None, retry=0.1):
+def make_session(connector=None, retry=0.1, poll=4.0):
     statuses, events = [], []
     s = Session(connector or (lambda: connect_buds(sim=True)),
                 lambda st, msg: statuses.append((st, msg)),
-                lambda ev, state: events.append(ev), retry_delay=retry)
+                lambda ev, state: events.append(ev), retry_delay=retry, poll_interval=poll)
     return s, statuses, events
 
 
@@ -81,5 +81,16 @@ def test_connection_errors_are_reported_and_retried():
         assert wait_for(lambda: ("connected", "") in statuses)
         errors = [m for st, m in statuses if st == "error"]
         assert errors == ["no route to buds", "no route to buds"]
+    finally:
+        s.stop()
+
+
+def test_session_polls_when_the_buds_do_not_push_noise_control():
+    s, statuses, _ = make_session(poll=0.2)
+    s.start()
+    try:
+        assert wait_for(lambda: s.buds is not None)
+        s.buds.sim.anc = model.ANC_MAX  # changed on the buds, no push
+        assert wait_for(lambda: s.buds.state.anc == model.ANC_MAX)
     finally:
         s.stop()
