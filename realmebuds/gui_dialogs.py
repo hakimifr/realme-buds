@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from . import model, parsing  # noqa: E402
+from .gui_util import pass_scroll_to_parent  # noqa: E402
 
 
 def _dialog_shell(title: str, width: int = 440) -> tuple[Adw.Dialog, Gtk.Box]:
@@ -141,6 +142,7 @@ class HearingTestDialog:
         self.scale.add_mark(0, Gtk.PositionType.BOTTOM, "quiet")
         self.scale.add_mark(len(stops) - 1, Gtk.PositionType.BOTTOM, "loud")
         self.scale.connect("value-changed", self._on_scale)
+        pass_scroll_to_parent(self.scale)  # an accidental wheel turn must never make a test tone louder
         page.append(self.scale)
         row = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER)
         self.next_button = Gtk.Button(label="Next", css_classes=["suggested-action", "pill"])

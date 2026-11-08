@@ -39,7 +39,10 @@
    "note": "Buds reconnect after changing this",
    "group": "sound",
    "drops_link": true,
-   "evidence": "family"
+   "evidence": "family",
+   "conflicts": [
+    "spatial"
+   ]
   },
   {
    "key": "game-mode",
@@ -57,7 +60,10 @@
    "note": "",
    "group": "sound",
    "drops_link": false,
-   "evidence": "family"
+   "evidence": "family",
+   "conflicts": [
+    "lhdc"
+   ]
   },
   {
    "key": "smart-volume",

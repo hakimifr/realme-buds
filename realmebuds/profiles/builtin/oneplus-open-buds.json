@@ -57,7 +57,10 @@
    "note": "Buds reconnect after changing this",
    "group": "sound",
    "drops_link": true,
-   "evidence": "family"
+   "evidence": "family",
+   "conflicts": [
+    "spatial"
+   ]
   },
   {
    "key": "spatial",
@@ -66,7 +69,10 @@
    "note": "",
    "group": "sound",
    "drops_link": false,
-   "evidence": "family"
+   "evidence": "family",
+   "conflicts": [
+    "lhdc"
+   ]
   }
  ],
  "gestures": {

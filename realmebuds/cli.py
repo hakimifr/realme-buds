@@ -13,7 +13,7 @@ from typing import Iterator
 from pathlib import Path
 
 from . import model, parsing, profiles
-from .client import Buds, BudsError, State
+from .client import Buds, BudsError, FeatureConflict, FeatureRefused, State
 from .profiles import DeviceProfile, ProfileError
 from .session import connect_buds
 from .transport import TRANSPORTS, TransportError, list_devices
@@ -229,10 +229,18 @@ def set_switch(args, buds: Buds, feat, state: bool) -> int:
         raise CliError(f"these buds do not report '{feat.label}' (feature 0x{feat.id:02X}); nothing was changed")
     if feat.evidence in ("family", "guess"):
         print(EXPERIMENTAL, file=sys.stderr)
-    if feat.key == "spatial":
-        buds.set_spatial(state)
-    else:
-        buds.set_feature(feat.id, state, verify=not feat.drops_link)
+    resolve = getattr(args, "resolve_conflicts", False)
+    try:
+        if feat.key == "spatial":
+            buds.set_spatial(state, resolve=resolve)
+        else:
+            buds.set_feature(feat.id, state, verify=not feat.drops_link, resolve=resolve)
+    except FeatureConflict as e:
+        raise CliError(f"{e} Run again with --resolve-conflicts to do that.") from e
+    except FeatureRefused as e:
+        raise CliError(str(e)) from e
+    if buds.last_resolved:
+        print("turned off first: " + ", ".join(f.label for f in buds.last_resolved), file=sys.stderr)
     if feat.drops_link:
         print("the buds will reconnect in a few seconds")
     print(f"{feat.label}: {'on' if state else 'off'}")
@@ -692,6 +700,8 @@ def build_parser(known: dict[str, DeviceProfile] | None = None) -> argparse.Argu
     ap.add_argument("--trace", action="store_true", help="print every frame sent and received to stderr")
     ap.add_argument("--profile", metavar="KEY", help="use this device profile instead of recognising the buds (see: profile list)")
     ap.add_argument("--profile-file", metavar="FILE", help="use the profile in this JSON file (to try a draft)")
+    ap.add_argument("--resolve-conflicts", action="store_true",
+                    help="when the buds refuse a switch because a conflicting one is on (such as LHDC while Spatial audio is on), turn that one off first, as the vendor app does after asking")
     ap.add_argument("--sim", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--sim-profile", help=argparse.SUPPRESS)
     sub = ap.add_subparsers(dest="command", required=True)

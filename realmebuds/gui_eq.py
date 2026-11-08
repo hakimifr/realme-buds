@@ -9,6 +9,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
 from . import parsing  # noqa: E402
+from .gui_util import pass_scroll_to_parent  # noqa: E402
 
 
 def band_label(hz: int) -> str:
@@ -48,6 +49,7 @@ class CustomEqDialog:
             scale.set_value_pos(Gtk.PositionType.RIGHT)
             scale.add_mark(0, Gtk.PositionType.BOTTOM, None)
             scale.set_value(max(spec.gain_min, min(spec.gain_max, gains.get(hz, 0))))
+            pass_scroll_to_parent(scale)
             row.append(scale)
             box.append(row)
             self.scales[hz] = scale

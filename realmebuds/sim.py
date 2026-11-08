@@ -72,6 +72,9 @@ class FakeBuds:
         self.tones_stopped = 0
         self.test_active = False
         self.registered_events: list[int] = []
+        # {feature id: ids it cannot be on together with}. Turning one on while another is on is
+        # refused with status 2, which is what an OPPO Enco Air5 Pro did for LHDC with Spatial audio on.
+        self.feature_conflicts: dict[int, tuple[int, ...]] = {}
 
     @property
     def profile(self) -> profiles.DeviceProfile:
@@ -223,6 +226,9 @@ class FakeBuds:
         elif c == protocol.CMD_FEATURE_WRITE and len(p) == 2:
             if p[0] not in self.features:
                 self._reply(pkt, b"\x01")
+                return
+            if p[1] and any(self.features.get(o) for o in self.feature_conflicts.get(p[0], ())):
+                self._reply(pkt, b"\x02")
                 return
             self.features[p[0]] = bool(p[1])
             self._reply(pkt, ok)

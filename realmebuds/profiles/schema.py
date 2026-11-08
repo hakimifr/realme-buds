@@ -73,6 +73,7 @@ class Feature:
     evidence: str = "family"
     drops_link: bool = False
     group: str = "personal"
+    conflicts: tuple[str, ...] = ()  # keys of switches that cannot be on at the same time as this one
 
 
 @dataclass(frozen=True)
@@ -184,6 +185,11 @@ class DeviceProfile:
         """The known feature for ``fid``, or a placeholder so unknown switches can still be shown."""
         return self.feature(fid) or Feature(f"feature-{fid:02x}", fid, f"Feature 0x{fid:02X}", "id not identified for this model", "guess")
 
+    def conflicting(self, feature: Feature) -> tuple[Feature, ...]:
+        """Switches that cannot be on together with ``feature`` (either side may declare it)."""
+        keys = set(feature.conflicts) | {f.key for f in self.features if feature.key in f.conflicts}
+        return tuple(f for f in self.features if f.key in keys and f.key != feature.key)
+
     def feature_ids(self) -> list[int]:
         return [f.id for f in self.features]
 
@@ -232,7 +238,7 @@ class DeviceProfile:
             }
         d["features"] = [
             {"key": f.key, "id": f.id, "label": f.label, "note": f.note, "evidence": f.evidence,
-             "drops_link": f.drops_link, "group": f.group}
+             "drops_link": f.drops_link, "group": f.group, **({"conflicts": list(f.conflicts)} if f.conflicts else {})}
             for f in self.features
         ]
         d["gestures"] = {
@@ -359,8 +365,15 @@ def profile_from_dict(d: Any, source: str = "<dict>") -> DeviceProfile:
         grp = f.get("group", "personal")
         if grp not in FEATURE_GROUPS:
             raise _fail(source, p + ".group", f"group must be one of {', '.join(FEATURE_GROUPS)}")
-        feats.append(Feature(fk, fid, _need(f, "label", str, source, p), f.get("note", ""), _evidence(f.get("evidence"), source, p + ".evidence"), bool(f.get("drops_link", False)), grp))
+        conflicts = f.get("conflicts", [])
+        if not isinstance(conflicts, list) or not all(isinstance(c, str) for c in conflicts):
+            raise _fail(source, p + ".conflicts", "expected a list of feature keys")
+        feats.append(Feature(fk, fid, _need(f, "label", str, source, p), f.get("note", ""), _evidence(f.get("evidence"), source, p + ".evidence"), bool(f.get("drops_link", False)), grp, tuple(conflicts)))
 
+    for i, f in enumerate(feats):
+        for c in f.conflicts:
+            if c not in fkeys or c == f.key:
+                raise _fail(source, f"features[{i}].conflicts", f"{c!r} is not another feature of this profile")
     g = d.get("gestures", {})
     sides = tuple(_int_in(x, 1, 4, source, "gestures.sides") for x in g.get("sides", [1, 2]))
     actions = tuple(_int_in(x, 1, 6, source, "gestures.actions") for x in g.get("actions", []))

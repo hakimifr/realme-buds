@@ -30,6 +30,32 @@ class Nack(BudsError):
         super().__init__(f"buds refused command 0x{cmd:04X} with status {status}{hint}")
 
 
+class FeatureRefused(Nack):
+    """The buds refused a feature switch. The message names the switch and the likely reasons."""
+
+    def __init__(self, cmd: int, status: int, feature: "profiles.Feature", on: bool, reasons: list[str]):
+        self.cmd, self.status, self.feature, self.on, self.reasons = cmd, status, feature, on, reasons
+        text = f"The buds refused to turn {feature.label} {'on' if on else 'off'} (status {status})."
+        if reasons:
+            text += " Possible reasons: " + "; ".join(reasons) + "."
+        Exception.__init__(self, text)
+
+
+class FeatureConflict(FeatureRefused):
+    """A switch was refused while another one it cannot be combined with is on."""
+
+    def __init__(self, cmd: int, status: int, feature: "profiles.Feature", on: bool, conflicts: "list[profiles.Feature]", reasons: list[str]):
+        super().__init__(cmd, status, feature, on, reasons)
+        self.conflicts = conflicts
+        names = " and ".join(c.label for c in conflicts)
+        Exception.__init__(
+            self,
+            f"The buds refused to turn {feature.label} on while {names} {'is' if len(conflicts) == 1 else 'are'} on: "
+            "on this model they cannot be on together. Turn "
+            f"{'it' if len(conflicts) == 1 else 'them'} off first (the vendor app asks and then does exactly that).",
+        )
+
+
 class VerifyFailed(BudsError):
     pass
 
@@ -581,8 +607,53 @@ class Buds:
                 raise BudsError(f"the profile {self.active_profile.key!r} has no noise-control mode {mode!r}") from None
         return self.set_anc(mode.set, expect=self.active_profile.expected_reports(mode))
 
-    def set_feature(self, feature_id: int, on: bool, *, verify: bool = True) -> bool | None:
-        self._write(protocol.CMD_FEATURE_WRITE, bytes([feature_id, 1 if on else 0]))
+    def _active_conflicts(self, feat: "profiles.Feature") -> "list[profiles.Feature]":
+        """Switches that conflict with ``feat`` and are on right now (asked from the buds, not remembered)."""
+        others = list(self.active_profile.conflicting(feat))
+        if not others:
+            return []
+        try:
+            self.read_features([o.id for o in others])
+        except (BudsError, TimeoutError):
+            pass
+        return [o for o in others if self.state.features.get(o.id)]
+
+    def _refusal(self, err: Nack, feat: "profiles.Feature", on: bool, active: "list[profiles.Feature]") -> FeatureRefused:
+        reasons = []
+        if active:
+            return FeatureConflict(err.cmd, err.status, feat, on, active, reasons)
+        if any(self.state.wearing.get(c) in model.IN_CASE_STATUSES for c in (1, 2)):
+            reasons.append("a bud is in the case")
+        reasons.append("the model may not support it, or may only allow it in some states (this tool does not know status "
+                       f"{err.status}; run with --trace and send the output if it should work)")
+        return FeatureRefused(err.cmd, err.status, feat, on, reasons)
+
+    def set_feature(self, feature_id: int, on: bool, *, verify: bool = True, resolve: bool = False) -> bool | None:
+        """Switch a feature on or off.
+
+        If the buds refuse while a conflicting switch is on, :class:`FeatureConflict` is raised, or with
+        ``resolve`` the conflicting switches are turned off first and the write is tried once more, which
+        is what the vendor app does after the user confirms.
+        """
+        feat = self.active_profile.feature_for_id(feature_id)
+        payload = bytes([feature_id, 1 if on else 0])
+        self.last_resolved: list[profiles.Feature] = []  # what had to be turned off first, for the caller to report
+        try:
+            self._write(protocol.CMD_FEATURE_WRITE, payload)
+        except Nack as e:
+            if e.status == protocol.STATUS_NOT_WORN:
+                raise
+            active = self._active_conflicts(feat) if on else []
+            if not (active and resolve):
+                raise self._refusal(e, feat, on, active) from None
+            # switches that drop the link go last, since nothing can be written until the buds are back
+            for other in sorted(active, key=lambda o: o.drops_link):
+                self.set_feature(other.id, False, verify=not other.drops_link)
+            self.last_resolved = list(active)  # set after the nested calls, which reset it
+            try:
+                self._write(protocol.CMD_FEATURE_WRITE, payload)
+            except Nack as again:
+                raise self._refusal(again, feat, on, []) from None
         with self._state_lock:
             self.state.features[feature_id] = on
         if not verify:
@@ -593,14 +664,14 @@ class Buds:
             raise self._verify_failed(f"feature 0x{feature_id:02X}: wanted {on}, buds report {got}")
         return got
 
-    def set_spatial(self, on: bool) -> bool | None:
+    def set_spatial(self, on: bool, *, resolve: bool = False) -> bool | None:
         if on and self.supports(protocol.CMD_SPATIAL_SOURCE):
             try:
                 # realme Link tells the buds to render 3D audio themselves (00) rather than the phone (01).
                 self.request(protocol.CMD_SPATIAL_SOURCE, b"\x00")
             except (Nack, TimeoutError):
                 pass
-        return self.set_feature(0x1B, on)
+        return self.set_feature(0x1B, on, resolve=resolve)
 
     def set_eq_preset(self, preset_id: int) -> int | None:
         self._write(protocol.CMD_EQ_SELECT, bytes([preset_id]))

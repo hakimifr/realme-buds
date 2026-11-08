@@ -334,6 +334,26 @@ case 21 for the descriptor write) and `G8.b` (`OPOv1Wrapper`):
 - The profile field `transport` (`preferred`, `service_uuid`) is a hint that is only used when a profile is forced
   (`--profile`, `--profile-file`), because the profile of recognised buds is only known after the link is up.
 
+## Switches that cannot be on together (LHDC and Spatial audio)
+
+HeyMelody has a per-model flag, `spatialHiResMutex`, and a confirmation dialog for it. Read from the decompiled
+app (`HiQualityAudioItem`, `SpatialAudioHelper`): when you turn Hi-Res on while Spatial audio is on, it asks, then writes
+spatial **off** (and waits for the buds to answer), then writes Hi-Res (feature 24) on. Models it calls "V2" skip all of
+that and just write Hi-Res. realme Link never writes one with the other.
+
+What was seen on real buds:
+
+- realme Buds Air7 Pro (project owner): LHDC and Spatial audio can both be on.
+- OPPO Enco Air5 Pro (another owner, screenshot): turning LHDC on was refused with status **2** on `0x0403`, with Spatial
+  audio on. A bud was also in the case in that screenshot, so the cause is not proven to be the conflict.
+
+What the tool does about it: the flag is not in the model data this project has, so it does not guess it. Profiles for
+non-realme models that have both switches list them as conflicting (`conflicts` on a feature). The write is tried
+normally; only if the buds refuse **and** a conflicting switch is on, the tool reports the conflict, and with
+`--resolve-conflicts` (the GUI asks first, or the Advanced override skips the question) it turns the other switch off first,
+as the app does, and tries once more. Switches that drop the link are written last. A refusal with no known conflict names the
+switch and the possible reasons (a bud in the case, an unknown status) instead of only a command number.
+
 ## Not implemented on purpose
 
 MindFlow and AI Translate (they depend on the phone app), firmware update, personalised ANC,

@@ -152,7 +152,10 @@
    "note": "Buds reconnect after changing this",
    "group": "sound",
    "drops_link": true,
-   "evidence": "reported"
+   "evidence": "reported",
+   "conflicts": [
+    "spatial"
+   ]
   },
   {
    "key": "game-mode",
@@ -170,7 +173,10 @@
    "note": "",
    "group": "sound",
    "drops_link": false,
-   "evidence": "reported"
+   "evidence": "reported",
+   "conflicts": [
+    "lhdc"
+   ]
   },
   {
    "key": "dynamic-audio",

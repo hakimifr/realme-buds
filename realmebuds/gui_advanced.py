@@ -4,6 +4,7 @@
     gesture/hold-cycle --force       force_gestures_row / force_hold_row
     fit-test/golden-sound --force    force_caps_row
     golden-sound test --skip-scan    skip_scan_row
+    --resolve-conflicts              resolve_conflicts_row
     fit-test --timeout               fit_timeout_row
     --profile / --profile-file       profile_row / profile_file_button
     --addr / --channel               address_row / channel_row
@@ -87,6 +88,7 @@ class AdvancedDialog:
         self.force_hold_row = self._switch(g, "Allow fewer touch-and-hold modes than the minimum", "(command line: hold-cycle --force)", "force_hold_cycle")
         self.force_caps_row = self._switch(g, "Show Fit test and Golden Sound even if the profile does not list them", "(command line: fit-test --force, golden-sound --force)", "force_capabilities")
         self.skip_scan_row = self._switch(g, "Skip the ear scan in the Golden Sound test", "Not what the official app does (command line: golden-sound test --skip-scan)", "skip_ear_scan")
+        self.resolve_conflicts_row = self._switch(g, "Turn off a conflicting switch without asking", "When the buds refuse LHDC because Spatial audio is on (or similar), turn the other one off first instead of asking (command line: --resolve-conflicts)", "resolve_conflicts")
         self.fit_timeout_row = Adw.SpinRow(title="Fit test timeout (seconds)", subtitle="(command line: fit-test --timeout)", adjustment=Gtk.Adjustment(value=self.ov.fit_timeout, lower=5, upper=120, step_increment=5))
         self.fit_timeout_row.connect("notify::value", lambda r, _p: self._set_override("fit_timeout", float(r.get_value())))
         g.add(self.fit_timeout_row)

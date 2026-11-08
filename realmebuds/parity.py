@@ -56,6 +56,7 @@ PARITY: tuple[Parity, ...] = (
     Parity("golden-sound", "window.golden_switch"),
     Parity("golden-sound --name", "hearing.name_entry"),
     Parity("golden-sound --skip-scan", "advanced.skip_scan_row"),
+    Parity("--resolve-conflicts", "advanced.resolve_conflicts_row", "the GUI asks first by default, like the vendor app"),
     Parity("golden-sound --force", "advanced.force_caps_row"),
     Parity("watch", "window.session", "the window updates live from the buds' pushes and polling"),
     Parity("raw", "advanced.raw_send_button"),

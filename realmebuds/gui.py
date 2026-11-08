@@ -19,10 +19,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from . import model, profiles, protocol  # noqa: E402
-from .client import Buds, State  # noqa: E402
+from .client import Buds, FeatureConflict, State  # noqa: E402
 from .gui_advanced import AdvancedDialog  # noqa: E402
 from .gui_dialogs import FitTestDialog, HearingTestDialog  # noqa: E402
 from .gui_eq import CustomEqDialog, band_label  # noqa: E402
+from .gui_util import pass_scroll_to_parent  # noqa: E402
 from .session import Session, connect_buds  # noqa: E402
 from .transport import TRANSPORTS  # noqa: E402
 
@@ -39,6 +40,7 @@ class Overrides:
     force_hold_cycle: bool = False  # hold-cycle --force
     force_capabilities: bool = False  # fit-test --force, golden-sound --force
     skip_ear_scan: bool = False  # golden-sound test --skip-scan
+    resolve_conflicts: bool = False  # --resolve-conflicts (without it the window asks first)
     fit_timeout: float = 30.0  # fit-test --timeout
     profile: str | None = None  # --profile
     profile_file: str | None = None  # --profile-file
@@ -384,6 +386,9 @@ class BudsWindow(Adw.ApplicationWindow):
 
     def _build_dynamic(self, prof: profiles.DeviceProfile) -> None:
         feat = prof.feature("dynamic-audio")
+        # a model with only the switch (such as a BassWave-only one) has no bands to shape
+        self.dynamic_group.set_title(("Dynamic audio" if prof.dynamic_bands else feat.label) if feat else "Dynamic audio")
+        self.dynamic_group.set_description("Shape the sound by band" if prof.dynamic_bands else "")
         self.dynamic_switch = Adw.SwitchRow(title=feat.label if feat else "Dynamic audio")
         self.dynamic_switch.connect("notify::active", self._on_dynamic_switch)
         self._own(self.dynamic_group, self.dynamic_switch)
@@ -399,6 +404,7 @@ class BudsWindow(Adw.ApplicationWindow):
             for v in (lo, 0, hi):
                 scale.add_mark(v, Gtk.PositionType.BOTTOM, None)
             scale.connect("value-changed", self._on_dynamic_changed, band)
+            pass_scroll_to_parent(scale)
             row.add_suffix(scale)
             self._own(self.dynamic_group, row)
             self.dynamic_scales[band] = scale
@@ -528,12 +534,32 @@ class BudsWindow(Adw.ApplicationWindow):
         on = row.get_active()
         message = "The buds will reconnect in a few seconds" if feat.drops_link else None
 
+        self.set_switch(feat, on, message)
+
+    def set_switch(self, feat: profiles.Feature, on: bool, message: str | None = None, resolve: bool | None = None) -> None:
+        """Write a switch. If the buds refuse because a conflicting one is on, ask before turning that off."""
+        resolve = self.overrides.resolve_conflicts if resolve is None else resolve
+
         def do(b: Buds):
             if feat.key == "spatial":
-                return b.set_spatial(on)
-            return b.set_feature(feat.id, on, verify=not feat.drops_link)
+                return b.set_spatial(on, resolve=resolve)
+            return b.set_feature(feat.id, on, verify=not feat.drops_link, resolve=resolve)
 
-        self.act(do, message)
+        self.act(do, message, on_conflict=lambda err: self.ask_to_resolve(feat, on, message, err))
+
+    def ask_to_resolve(self, feat: profiles.Feature, on: bool, message: str | None, err: FeatureConflict) -> None:
+        names = " and ".join(c.label for c in err.conflicts)
+        dialog = Adw.AlertDialog(
+            heading=f"Turn {names} off?",
+            body=f"{feat.label} can’t be on together with {names} on this model, so the buds refused. "
+            f"Turn {names} off and then turn {feat.label} on? This is what the vendor app does when you confirm.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("resolve", f"Turn {names} off")
+        dialog.set_response_appearance("resolve", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", lambda _d, r: r == "resolve" and self.set_switch(feat, on, message, resolve=True))
+        dialog.present(self)
 
     # -- touch controls -----------------------------------------------------------------
 
@@ -706,16 +732,20 @@ class BudsWindow(Adw.ApplicationWindow):
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
 
-    def act(self, fn, ok_message: str | None = None) -> None:
-        """Run ``fn(buds)`` on the session thread; show errors and re-sync the widgets after."""
+    def act(self, fn, ok_message: str | None = None, on_conflict=None) -> None:
+        """Run ``fn(buds)`` on the session thread; show errors and re-sync the widgets after.
+
+        ``on_conflict(err)`` is called instead of showing a toast when a switch conflicts with another."""
 
         def done(_result, err) -> None:
-            GLib.idle_add(self._after_action, err, ok_message)
+            GLib.idle_add(self._after_action, err, ok_message, on_conflict)
 
         self.session.submit(fn, done)
 
-    def _after_action(self, err: Exception | None, ok_message: str | None) -> bool:
-        if err is not None:
+    def _after_action(self, err: Exception | None, ok_message: str | None, on_conflict=None) -> bool:
+        if isinstance(err, FeatureConflict) and on_conflict is not None:
+            on_conflict(err)
+        elif err is not None:
             self.toast(str(err))
         elif ok_message:
             self.toast(ok_message)
@@ -745,10 +775,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--service-uuid", metavar="UUID", help="GATT service of the control channel for --transport ble")
     ap.add_argument("--profile", metavar="KEY", help="use this device profile instead of recognising the buds")
     ap.add_argument("--profile-file", metavar="FILE", help="use the profile in this JSON file")
+    ap.add_argument("--resolve-conflicts", action="store_true", help="turn off a conflicting switch without asking (such as Spatial audio before LHDC)")
     ap.add_argument("--sim", action="store_true", help="use pretend buds, to try the interface")
     args = ap.parse_args(argv)
     ov = Overrides(profile=args.profile, profile_file=args.profile_file, address=args.addr, channel=args.channel,
-                   transport=args.transport, service_uuid=args.service_uuid)
+                   transport=args.transport, service_uuid=args.service_uuid, resolve_conflicts=args.resolve_conflicts)
     return BudsApp(overrides=ov, sim=args.sim).run([sys.argv[0]])
 
 

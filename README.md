@@ -156,7 +156,7 @@ realme-buds profile list                 # device profiles; also: show, validate
 ```
 
 Useful when something misbehaves: `--trace` prints every frame to stderr, `--addr`
-picks a pair explicitly, `--channel N` skips the SDP lookup, `--transport auto|rfcomm|ble` chooses the link
+picks a pair explicitly, `--resolve-conflicts` turns off a conflicting switch for you, `--channel N` skips the SDP lookup, `--transport auto|rfcomm|ble` chooses the link
 (`auto` tries RFCOMM and then the experimental Bluetooth LE one) with `--service-uuid UUID` for the GATT service, `--profile KEY` /
 `--profile-file FILE` choose the device profile instead of recognising the buds.
 
@@ -185,8 +185,10 @@ If a command fails, rerun it with `--trace` and keep the output.
 - Changing **LHDC** makes the buds drop and reconnect for a few seconds. The GUI
   reconnects by itself.
 - `find` rings both buds loudly. Take them out first.
-- Spatial audio and LHDC are separate switches here. The official app treats them as
-  exclusive on some models, so if one refuses to turn on, check the other.
+- On some models (the OPPO and OnePlus ones, per the vendor app) LHDC and Spatial audio cannot be on together. If the buds
+  refuse one while the other is on, the GUI asks whether to turn the other off first, and the command line says so and
+  offers `--resolve-conflicts`. Your realme Air7 Pro does not have this limit.
+- Mouse-wheel scrolling over a slider scrolls the page, it never changes the slider. Drag, click or use the keyboard.
 - Settings are stored on the buds, so they stick for your phone too.
 - **Golden Sound** tones play inside your ears. The test starts quiet and asks before every
   loud step, but keep it sensible. `realme-buds golden-sound off` turns the profile off again.

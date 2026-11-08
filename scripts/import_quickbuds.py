@@ -264,6 +264,18 @@ def convert_model(model: dict, key: str) -> dict:
             label, note = "BassWave", "Bass boost engine"
         features.append({"key": fkey, "id": fid, "label": label, "note": note, "group": group, "drops_link": drops,
                          "evidence": "reported" if fid in confirmed_ids else "family"})
+    # HeyMelody models (OPPO, OnePlus) cannot have Hi-Res (LHDC) and Spatial audio on at the same time: the app
+    # asks, switches spatial off, waits, then writes Hi-Res on (its per-model flag is `spatialHiResMutex`, which the
+    # source data does not carry, so this is applied to every model that has both). realme Link never writes
+    # one with the other, and an Air7 Pro owner has both on, so realme models get no conflict.
+    if not name.startswith(("realme", "DIZO")):
+        keys = {f["key"] for f in features}
+        if {"lhdc", "spatial"} <= keys:
+            for f in features:
+                if f["key"] == "lhdc":
+                    f["conflicts"] = ["spatial"]
+                elif f["key"] == "spatial":
+                    f["conflicts"] = ["lhdc"]
     d["features"] = features
     if model.get("bassEngineSupport"):
         notes_extra.append("BassWave has one level on the buds' side and is not modelled as bands here, only its switch is.")

@@ -25,6 +25,7 @@ from realmebuds.gui import BudsApp  # noqa: E402
 from realmebuds.gui_advanced import AdvancedDialog  # noqa: E402
 from realmebuds.gui_dialogs import FitTestDialog, HearingTestDialog  # noqa: E402
 from realmebuds.gui_eq import CustomEqDialog  # noqa: E402
+from realmebuds.gui_util import pass_scroll_to_parent  # noqa: E402
 from realmebuds import profiles  # noqa: E402
 from realmebuds.transport import Device  # noqa: E402
 from realmebuds.session import connect_buds  # noqa: E402
@@ -596,6 +597,149 @@ def test_refused_write_puts_the_widgets_back(win):
     assert pump(lambda: win.anc_buttons[key].get_active() and not win.anc_buttons["off"].get_active())
     assert sim(win).anc == current
     sim(win).worn = True
+
+
+# -- conflicting switches (LHDC refused while Spatial audio is on) ----------------------------------
+
+
+def enco_with_conflict(win):
+    reconnect(win, sim_profile="oppo-enco-air5-pro")
+    s = sim(win)
+    s.feature_conflicts = {0x18: (0x1B,), 0x1B: (0x18,)}
+    s.features[0x1B], s.features[0x18] = True, False
+    win.session.submit(lambda b: b.read_features())
+    assert pump(lambda: win.feature_rows["spatial"].get_active() and not win.feature_rows["lhdc"].get_active())
+
+
+def test_a_refused_switch_asks_before_turning_the_conflicting_one_off(win):
+    enco_with_conflict(win)
+    asked = []
+    win.ask_to_resolve = lambda feat, on, message, err: asked.append((feat.key, on, [c.key for c in err.conflicts]))
+    win.feature_rows["lhdc"].set_active(True)
+    assert pump(lambda: asked)
+    assert asked == [("lhdc", True, ["spatial"])]
+    assert sim(win).features[0x18] is False and sim(win).features[0x1B] is True  # nothing changed without the answer
+    assert pump(lambda: not win.feature_rows["lhdc"].get_active())  # the switch went back to what the buds have
+    del win.ask_to_resolve  # use the real method again
+    # the answer "yes": the same write with resolve=True
+    win.set_switch(win._feature_defs["lhdc"], True, resolve=True)
+    assert pump(lambda: sim(win).features[0x18] is True and sim(win).features[0x1B] is False)
+    assert pump(lambda: win.feature_rows["lhdc"].get_active() and not win.feature_rows["spatial"].get_active())
+    reconnect(win)
+
+
+def test_the_dialog_names_both_switches(win):
+    from realmebuds.client import FeatureConflict
+
+    enco_with_conflict(win)
+    feats = win.current_profile
+    err = FeatureConflict(0x0403, 2, feats.feature("lhdc"), True, [feats.feature("spatial")], [])
+    shown = []
+    from gi.repository import Adw
+
+    original = Adw.AlertDialog.present
+    Adw.AlertDialog.present = lambda self, parent=None: shown.append((self.get_heading(), self.get_body()))
+    try:
+        win.ask_to_resolve(feats.feature("lhdc"), True, None, err)
+    finally:
+        Adw.AlertDialog.present = original
+    heading, body = shown[0]
+    assert heading == "Turn Spatial audio off?" and "High-definition sound (LHDC)" in body and "vendor app" in body
+    reconnect(win)
+
+
+def test_the_advanced_override_skips_the_question(win):
+    enco_with_conflict(win)
+    asked = []
+    win.ask_to_resolve = lambda *a: asked.append(a)
+    adv = AdvancedDialog(win)
+    adv.resolve_conflicts_row.set_active(True)
+    assert win.overrides.resolve_conflicts
+    win.feature_rows["lhdc"].set_active(True)
+    assert pump(lambda: sim(win).features[0x18] is True and sim(win).features[0x1B] is False)
+    assert asked == []
+    del win.ask_to_resolve
+    win.overrides.resolve_conflicts = False
+    adv.dialog.close()
+    reconnect(win)
+
+
+def test_a_model_with_only_a_bassave_switch_does_not_claim_there_are_bands(win):
+    reconnect(win, sim_profile="oppo-enco-air5-pro")
+    assert not win.dynamic_scales and win.current_profile.feature("dynamic-audio").label == "BassWave"
+    assert win.dynamic_group.get_title() == "BassWave" and win.dynamic_group.get_description() == ""
+    reconnect(win)
+    assert win.dynamic_group.get_title() == "Dynamic audio" and "band" in win.dynamic_group.get_description()
+
+
+# -- sliders must not steal the mouse wheel ----------------------------------------------------
+
+
+def walk(widget):
+    yield widget
+    child = widget.get_first_child()
+    while child is not None:
+        yield from walk(child)
+        child = child.get_next_sibling()
+
+
+def capture_scroll_controller(widget):
+    controllers = widget.observe_controllers()
+    for i in range(controllers.get_n_items()):
+        c = controllers.get_item(i)
+        if isinstance(c, Gtk.EventControllerScroll) and c.get_propagation_phase() == Gtk.PropagationPhase.CAPTURE:
+            return c
+    return None
+
+
+def scales_in(root):
+    return [w for w in walk(root) if isinstance(w, Gtk.Scale)]
+
+
+def test_a_slider_ignores_the_wheel_and_the_page_scrolls_instead():
+    page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -5, 5, 1)
+    scale.set_value(0)
+    page.append(Gtk.Box(height_request=600))
+    page.append(scale)
+    page.append(Gtk.Box(height_request=600))
+    scroller = Gtk.ScrolledWindow(child=page, min_content_height=300, vexpand=True)
+    holder = Gtk.Window(child=scroller, default_width=300, default_height=300)
+    holder.present()
+    pump(lambda: False, 0.4)
+    controller = pass_scroll_to_parent(scale)
+    adj = scroller.get_vadjustment()
+    before = adj.get_value()
+    for _ in range(3):
+        assert controller.emit("scroll", 0.0, 1.0) is True  # handled, so the slider's own handler never runs
+    assert scale.get_value() == 0
+    assert adj.get_value() > before
+    controller.emit("scroll", 0.0, -100.0)
+    assert adj.get_value() == adj.get_lower()  # and it stops at the top
+    controller.emit("scroll", 5.0, 0.0)  # sideways wheel: handled too, nothing moves
+    assert scale.get_value() == 0
+    holder.close()
+
+
+def test_every_slider_in_the_app_is_protected(win):
+    reconnect(win)
+    windows = [win]
+    dialogs = [CustomEqDialog(win), HearingTestDialog(win)]
+    found = 0
+    for root in windows + [d.dialog.get_child() for d in dialogs]:  # an Adw.Dialog holds its content as a child
+        for scale in scales_in(root):
+            found += 1
+            assert capture_scroll_controller(scale) is not None, f"{type(root).__name__}: a slider would steal the mouse wheel"
+    assert found >= 3 + 6 + 1  # the three Dynamic audio bands, six EQ bands, the hearing-test slider
+    for d in dialogs:
+        d.dialog.close()
+
+
+def test_real_scale_in_the_window_leaves_its_value_alone(win):
+    scale = win.dynamic_scales[1]
+    before = scale.get_value()
+    assert capture_scroll_controller(scale).emit("scroll", 0.0, 1.0) is True
+    assert scale.get_value() == before
 
 
 def test_every_parity_target_exists_in_the_gui(win):
