@@ -3,6 +3,8 @@
 Every table here has an evidence level, because a wrong *write* fails silently on
 these buds. See docs/PROTOCOL.md for where each fact comes from.
 
+    "app"        confirmed in the decompiled realme Link 5.8.811.2814 (the id and payload
+                 the app itself sends)
     "reported"   seen in a capture of an Air7 Pro by someone who owns one
     "family"     seen on other realme/OPPO buds of the same protocol family
     "guess"      plausible, never confirmed; the CLI/UI mark these as experimental
@@ -68,15 +70,15 @@ class Feature:
 
 
 FEATURES = (
-    Feature("wear-detect", 0x04, "Auto play/pause", "Pause when a bud is taken out, resume when it is back", "reported"),
-    Feature("game-mode", 0x06, "Game mode", "Low-latency audio", "reported"),
-    Feature("auto-answer", 0x08, "Auto-answer", "Answer a call when a bud is taken out of the case", "family"),
-    Feature("enhance-voices", 0x09, "Enhance voices", "Diminish ambient sound, lift voices (transparency)", "family"),
-    Feature("dual", 0x11, "Dual-device connection", "Stay connected to two devices", "reported"),
-    Feature("lhdc", 0x18, "High-definition sound (LHDC)", "Buds reconnect after changing this", "reported", drops_link=True),
-    Feature("wind", 0x1A, "Wind noise reduction", "", "family"),
-    Feature("spatial", 0x1B, "Spatial audio", "", "reported"),
-    Feature("dynamic-audio", 0x1D, "Dynamic audio", "Three-band bass/mid/treble engine", "family"),
+    Feature("wear-detect", 0x04, "Auto play/pause", "Pause when a bud is taken out, resume when it is back", "app"),
+    Feature("game-mode", 0x06, "Game mode", "Low-latency audio", "app"),
+    Feature("auto-answer", 0x08, "Auto-answer", "Answer a call when a bud is taken out of the case", "app"),
+    Feature("enhance-voices", 0x09, "Enhance voices", "Diminish ambient sound, lift voices (transparency)", "app"),
+    Feature("dual", 0x11, "Dual-device connection", "Stay connected to two devices", "app"),
+    Feature("lhdc", 0x18, "High-definition sound (LHDC)", "Buds reconnect after changing this", "app", drops_link=True),
+    Feature("wind", 0x1A, "Wind noise reduction", "", "app"),
+    Feature("spatial", 0x1B, "Spatial audio", "", "app"),
+    Feature("dynamic-audio", 0x1D, "Dynamic audio", "Three-band bass/mid/treble engine", "app"),
 )
 FEATURE_BY_KEY = {f.key: f for f in FEATURES}
 FEATURE_BY_ID = {f.id: f for f in FEATURES}

@@ -7,8 +7,9 @@
 >
 > - It talks to your earbuds over Bluetooth and **writes settings to them**. It can get
 >   things wrong, and it has only been tried on a single pair of Air7 Pro.
-> - Most of the protocol comes from other people's public notes, not from the official
->   app, so some commands are guesses. They are labelled experimental in the tool.
+> - The protocol was checked against the decompiled official app and a real pair of buds,
+>   but a few details (touch function codes, EQ preset names) are still guesses from other
+>   people's public notes. Those are labelled experimental in the tool.
 > - **Use it at your own risk.** There is no warranty, and nothing here is endorsed by realme.
 >
 > If you rely on it, read the code first.
@@ -20,9 +21,9 @@ mode, EQ, Dynamic audio, touch controls and more. No phone, no realme Link, no
 account. A command line tool and a GTK4 app, both on top of the same small library.
 
 > **Read this first.** The code was written on a server with no Bluetooth and tested
-> against a simulator built from public protocol notes. The first connection to a real
-> Air7 Pro (captured 2026-11-07) fixed one bug and is now part of the tests, but most
-> commands have still not been tried on real buds. The checklist below is how to find out.
+> against a simulator, then fixed against traces from a real Air7 Pro and checked against
+> the decompiled realme Link 5.8.811.2814. Most commands have still not been tried on real
+> buds. The checklist below is how to find out.
 
 ## What works
 
@@ -32,10 +33,10 @@ account. A command line tool and a GTK4 app, both on top of the same small libra
 | Noise control (off / transparency / ANC levels) | `anc` | yes | reported |
 | Touch-and-hold noise cycle | `hold-cycle` | yes | reported |
 | Game mode, auto play/pause, dual-device, spatial audio, LHDC | yes | yes | reported |
-| Wind noise reduction, enhance voices, auto-answer | yes | yes | family-level, experimental |
+| Wind noise reduction, enhance voices, auto-answer | yes | yes | ids and payloads confirmed in the app's code, not yet tried on real buds |
 | EQ built-in presets | `eq set` | yes | family-level, experimental |
-| Custom EQ (6 bands, +-6 dB) | `eq save` | no | family-level, experimental |
-| Dynamic audio (3 bands) | `dynamic-audio` | yes | family-level, experimental |
+| Custom EQ (6 bands, +-6 dB) | `eq save` | no | payload confirmed in the app's code, untested on real buds |
+| Dynamic audio (3 bands) | `dynamic-audio` | yes | confirmed in the app's code and working on a real Air7 Pro |
 | Touch remapping (double / triple / hold, per bud) | `gesture` | yes | partly reported |
 | Find my earbuds | `find` | yes | family-level |
 

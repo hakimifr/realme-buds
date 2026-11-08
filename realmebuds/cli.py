@@ -15,6 +15,7 @@ from .session import connect_buds
 from .transport import TransportError, list_devices
 
 EXPERIMENTAL = "(experimental: not yet confirmed on real Air7 Pro hardware)"
+UNTESTED = "(untested on real hardware, but the payload matches what realme Link sends)"
 
 
 class CliError(Exception):
@@ -178,7 +179,7 @@ def cmd_feature(args) -> int:
         buds.read_features([feat.id])
         if feat.id not in buds.state.features:
             raise CliError(f"these buds do not report '{feat.label}' (feature 0x{feat.id:02X}); nothing was changed")
-        if feat.evidence == "family":
+        if feat.evidence in ("family", "guess"):
             print(EXPERIMENTAL, file=sys.stderr)
         if feat.key == "spatial":
             buds.set_spatial(args.state)
@@ -238,7 +239,7 @@ def cmd_eq(args) -> int:
             buds.set_eq_preset(pid)
             print(f"equaliser: {eq_name(buds.state)}")
         elif args.action == "save":
-            print(EXPERIMENTAL, file=sys.stderr)
+            print(UNTESTED, file=sys.stderr)
             if len(args.args) < 2:
                 _need("eq save <name> <hz:db> ... (6 bands, gain -6..6)")
             name, bands = args.args[0], [parse_band(b) for b in args.args[1:]]
@@ -246,7 +247,7 @@ def cmd_eq(args) -> int:
             buds.save_custom_eq(existing.id if existing else None, name, bands)
             print(f"saved custom equaliser {name!r} and selected it")
         elif args.action == "delete":
-            print(EXPERIMENTAL, file=sys.stderr)
+            print(UNTESTED, file=sys.stderr)
             if not args.args or not args.args[0].isdigit():
                 _need("eq delete <id>")
             buds.delete_custom_eq(int(args.args[0]))
@@ -293,7 +294,6 @@ def cmd_dynamic_audio(args) -> int:
     values = args.values
     with open_buds(args) as buds:
         if len(values) == 1 and values[0].lower() in ("on", "off"):
-            print(EXPERIMENTAL, file=sys.stderr)
             buds.read_features([0x1D])
             if 0x1D not in buds.state.features:
                 raise CliError("these buds do not report the dynamic audio switch (0x1D); nothing was changed")
@@ -304,7 +304,6 @@ def cmd_dynamic_audio(args) -> int:
         if not bands:
             raise CliError("these buds do not report dynamic audio bands")
         if values:
-            print(EXPERIMENTAL, file=sys.stderr)
             wanted = parse_band_args(values)
             for band, value in wanted.items():
                 if next((b.value for b in bands if b.band == band), None) != value:

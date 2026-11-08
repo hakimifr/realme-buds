@@ -3,33 +3,62 @@
 What the earbuds speak, as used by this project. Written for people who want to
 extend it or check a claim.
 
-## How this was established, honestly
+## How this was established
 
-I could not decompile realme Link for this: APKMirror gates the file behind a
-browser session and Cloudflare, and no other mirror gave a usable direct file from the
-machine this was developed on. So nothing here comes from reading the app's code.
+Three sources, in order of trust:
 
-It comes from three public projects that captured and documented the same protocol
-family, cross-checked against each other and against your screenshots of realme Link
-5.8.811.2814 on an Air7 Pro:
+1. **The app itself.** realme Link 5.8.811.2814 (versionCode 530214) was decompiled with
+   jadx. The earbud protocol lives in `classes40.dex`, package
+   `com.realme.iot.headset.tl.protocol` (`SetCommandManager`, `PollCommandManager`,
+   `Protocol`, `TLHeadsetConnectionImp`). Names are partly obfuscated, but the setter
+   method names (`setHighQualitySound`, `setControlWindNoise`, `setDynamicLowSound`, ...) and
+   the numeric command ids are intact. Evidence level `app` below.
+2. **A real Air7 Pro**, via traces sent back from the user's laptop. Evidence level `reported`
+   in code, and the tests in `tests/test_real_capture.py`.
+3. **Other people's public notes** for things the app code does not spell out:
+   QuickBuds (`NazimFilzer/QuickBuds`, GPL-3.0, used as documentation only, no code copied),
+   `rahul19305/realme-buds-control` (MIT, an Air7 Pro tool) and `utkarshhxd/realme-buds-control`
+   (MIT, tested on an Air8). Evidence level `family`.
 
-- QuickBuds (`NazimFilzer/QuickBuds`, GPL-3.0), whose `docs/PROTOCOL.md` is the most
-  complete map, including Air7 Pro and realme Link notes. Used as documentation only,
-  no code copied.
-- `rahul19305/realme-buds-control` (MIT), an Air7 Pro specific Windows tool.
-- `utkarshhxd/realme-buds-control` (MIT), tested on an Air8, source of the
-  three-band Dynamic audio and custom-EQ layouts.
-
-Every table in `realmebuds/model.py` carries an evidence level:
+Every table in `realmebuds/model.py` carries its level:
 
 | Level | Meaning |
 | --- | --- |
-| `reported` | seen by someone with an Air7 Pro |
+| `app` | the id and payload are what realme Link's own code sends |
+| `reported` | seen on a real Air7 Pro |
 | `family` | seen on other realme/OPPO/OnePlus buds of this protocol, not confirmed on the Air7 Pro |
 | `guess` | plausible only |
 
-Anything not `reported` is labelled experimental in the CLI. Every write is read back
-because an ack of `00` does not prove a write took.
+Anything at `family` or `guess` is labelled experimental in the CLI. Every write is read
+back because an ack of `00` does not prove a write took, and the Air7 Pro does not
+acknowledge some writes at all (see below).
+
+### Confirmed in realme Link 5.8.811.2814
+
+| Command | App constant | Payload the app sends |
+| --- | --- | --- |
+| `0x0403` feature switch | `1027`, `setSwitchFeature` | `[feature id, 0 or 1]` |
+| `0x0404` noise control | `1028`, `SetNoiseReduction` | `[1 or 2, 1 or 2, value]` (the second form, first byte 2, sets the touch-and-hold cycle) |
+| `0x0406` select EQ preset | `1030`, `setEQStatus` | `[preset id]` |
+| `0x0401` touch table | `1025`, `setKeyFunction` | `[count, (side, button, action, function)*]` |
+| `0x0418` custom EQ | `1048`, `setEqInfo` | `[action, min, max, id, nameLen, name, nBands, (hz u16, gain)*]` |
+| `0x041B` Dynamic audio | `1051`, `setBassEngineValue` | `[min, max, value]`, plus a 4th byte (the band, 1-3) when above 0 |
+
+Feature ids, from the setters that write them: 4 wear detect, 6 game mode, 8 auto-answer
+(UI row for `headset_setting_auto_answer_phone`), 9 enhance voices (`setEnhanceVoice`),
+17 dual connection, 24 high-definition sound, 26 wind noise (`setControlWindNoise`),
+27 spatial audio (`set3DSoundEffect`), 29 Dynamic audio (`setDynamicLowSound`). The app has a
+second "enhance voice" setter on id 12 for a different row; this project does not use it.
+
+Not found in the app code, so still `family`: the meaning of each touch function code,
+which gestures accept which functions (that comes from cloud/model config), and the
+names that go with EQ preset ids 0-3.
+
+### Real-hardware findings
+
+The Air7 Pro does **not** acknowledge every write. Seen so far: the subscription
+(`0x0205`) and the Dynamic audio write (`0x041B`) are applied without a reply. The client
+therefore sends, waits briefly, and confirms by reading the value back.
 
 ## Transport
 
