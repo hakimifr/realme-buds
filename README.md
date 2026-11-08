@@ -1,3 +1,18 @@
+> [!CAUTION]
+> # ⚠️ THIS PROJECT IS VIBECODED ⚠️
+>
+> **Almost all of this code was written by an AI coding agent from prompts, not written
+> by hand or reviewed line by line by a human.** It has not been audited. Expect bugs,
+> wrong assumptions and rough edges.
+>
+> - It talks to your earbuds over Bluetooth and **writes settings to them**. It can get
+>   things wrong, and it has only been tried on a single pair of Air7 Pro.
+> - Most of the protocol comes from other people's public notes, not from the official
+>   app, so some commands are guesses. They are labelled experimental in the tool.
+> - **Use it at your own risk.** There is no warranty, and nothing here is endorsed by realme.
+>
+> If you rely on it, read the code first.
+
 # realme-buds
 
 Control realme Buds Air7 Pro from your laptop: noise control, spatial audio, game
