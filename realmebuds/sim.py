@@ -12,7 +12,7 @@ import socket
 import struct
 import threading
 
-from . import model, parsing, protocol
+from . import model, parsing, profiles, protocol
 from .parsing import GestureEntry
 from .protocol import Packet
 
@@ -29,6 +29,7 @@ class FakeBuds:
         self.answers: list[Packet] = []
 
         # Behaviour switches for tests.
+        self._profile = profiles.get(profiles.DEFAULT_KEY)
         self.worn = True  # False: ANC writes are refused with status 0x0E
         self.ignore_gesture_writes = False
         self.send_time_request = True
@@ -71,6 +72,24 @@ class FakeBuds:
         self.tones_stopped = 0
         self.test_active = False
         self.registered_events: list[int] = []
+
+    @property
+    def profile(self) -> profiles.DeviceProfile:
+        return self._profile
+
+    @profile.setter
+    def profile(self, prof: profiles.DeviceProfile) -> None:
+        """Become a different model: its product id, noise-control numbers and feature ids."""
+        self._profile = prof
+        if prof.key != profiles.DEFAULT_KEY:
+            self.features = {f.id: False for f in prof.features}
+            first = next((m for m in prof.anc_modes if m.group is None), None)
+            self.anc = first.report if first else 0
+            self.hold_cycle = sum(o.bit for o in prof.hold_options[:2]) or 1
+
+    def _product_id_bytes(self) -> bytes:
+        pid = self._profile.product_ids[0] if self._profile.product_ids else "000000"
+        return b"\x00" + int(pid, 16).to_bytes(3, "little")
 
     # -- plumbing ---------------------------------------------------------
 
@@ -159,7 +178,7 @@ class FakeBuds:
         if c == protocol.CMD_HANDSHAKE:
             self._reply(pkt, self.capability_reply)
         elif c == protocol.CMD_PRODUCT_ID:
-            self._reply(pkt, b"\x00\x14\x54\x06")
+            self._reply(pkt, self._product_id_bytes())
         elif c == protocol.CMD_FIRMWARE:
             self._reply(pkt, b"\x00\x04" + b"1,2,138,2,2,138,3,1,01,3,2,105")
         elif c == protocol.CMD_BATTERY:
@@ -288,12 +307,13 @@ class FakeBuds:
                 self._reply(pkt, bytes([protocol.STATUS_NOT_WORN]))
                 return
             mask = int.from_bytes(p[2:], "little")
-            if mask not in model.ANC_BY_BIT:
+            mode = self._profile.mode_by_set(mask)
+            if mode is None:
                 self._reply(pkt, b"\x01")
                 return
-            self.anc = mask
+            self.anc = mode.report  # models report a different number than they are written
             self._reply(pkt, b"\x00")
-            self.push(b"\x03\x01\x01" + protocol.mask_to_bytes(mask))
+            self.push(b"\x03\x01\x01" + protocol.mask_to_bytes(mode.report))
         elif p[:2] == b"\x02\x01":
             self.hold_cycle = int.from_bytes(p[2:], "little")
             self._reply(pkt, b"\x00")

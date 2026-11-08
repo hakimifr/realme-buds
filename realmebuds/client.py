@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import model, parsing, protocol
+from . import model, parsing, profiles, protocol
 from .parsing import GestureEntry
 from .protocol import Packet
 
@@ -79,9 +79,16 @@ class Buds:
         trace: Trace | None = None,
         request_timeout: float = 3.0,
         init_delay: float = 0.2,
+        profile: profiles.DeviceProfile | None = None,
+        device_name: str | None = None,
     ) -> None:
         self.sock = sock
         self.state = State()
+        # The model-specific data. Given explicitly (an override), else chosen after the
+        # handshake from the product id and Bluetooth name. See realmebuds/profiles.
+        self.profile: profiles.DeviceProfile | None = profile
+        self.profile_forced = profile is not None
+        self.device_name = device_name
         self.request_timeout = request_timeout
         self.init_delay = init_delay
         self._trace = trace
@@ -313,6 +320,9 @@ class Buds:
         time.sleep(self.init_delay)
         pkt = self.request(protocol.CMD_PRODUCT_ID, ok=False)
         self.state.product_id = parsing.parse_product_id(pkt.payload)
+        if self.profile is None:
+            self.profile = profiles.resolve(self.state.product_id, self.device_name)
+        self._emit("profile")
         time.sleep(self.init_delay)
         codes: list[int] = []
         try:
@@ -330,6 +340,11 @@ class Buds:
             except TimeoutError:
                 pass
 
+    @property
+    def active_profile(self) -> profiles.DeviceProfile:
+        """The profile in use; the generic one until the product id has been read."""
+        return self.profile or profiles.generic_profile(self.state.product_id, self.device_name)
+
     def supports(self, cmd: int) -> bool:
         """Whether the buds' capability bitmap enables ``cmd``. Unknown commands and a
         missing bitmap count as supported, so this can only ever skip a request."""
@@ -344,7 +359,7 @@ class Buds:
     def poll(self) -> None:
         """Re-read what the buds would have pushed had they offered to. Cheap, two requests."""
         self.read_anc()
-        self.read_features([f.id for f in model.FEATURES if f.id in self.state.features] or None)
+        self.read_features(sorted(self.state.features) or None)
 
     def sync(self) -> dict[str, str]:
         """Read everything the UI shows. Returns {what: error} for reads that failed."""
@@ -415,9 +430,14 @@ class Buds:
             self._emit("hold-cycle")
         return value
 
+    def _default_feature_ids(self) -> list[int]:
+        """The profile's feature ids; for unknown buds, the family's usual suspects."""
+        prof = self.active_profile
+        return prof.feature_ids() if prof.features else list(model.DEFAULT_SCAN_IDS)
+
     def read_features(self, ids: list[int] | None = None) -> dict[int, bool]:
         """Ask for feature switches. Only the ones the firmware has come back."""
-        wanted = ids if ids is not None else [f.id for f in model.FEATURES]
+        wanted = ids if ids is not None else self._default_feature_ids()
         found: dict[int, bool] = {}
         # Long id lists have made some buds drop the link, so ask in small chunks.
         for i in range(0, len(wanted), 4):
@@ -474,14 +494,21 @@ class Buds:
 
         Toggle a setting in the official app and scan again to learn which id it is.
         """
-        return self.read_features(list(ids if ids is not None else model.SCAN_FEATURE_IDS))
+        wanted = ids if ids is not None else sorted(set(self.active_profile.feature_ids()) | set(model.DEFAULT_SCAN_IDS))
+        return self.read_features(list(wanted))
 
     # -- writes (each one is read back; an ack of 00 does not prove the write took) ----
 
     def set_dynamic_band(self, band: int, value: int) -> list[parsing.DynamicBand]:
-        lo, hi = model.DYNAMIC_RANGE
-        if band not in model.DYNAMIC_BANDS or not lo <= value <= hi:
-            raise ValueError(f"band must be 1-3 and value {lo}..{hi}")
+        known = next((b for b in self.state.dynamic_audio if b.band == band), None)
+        prof = self.active_profile
+        if known is not None:
+            lo, hi = known.lo, known.hi  # what the buds themselves report for this band
+        else:
+            lo, hi = prof.dynamic_range
+        bands = {b.band for b in self.state.dynamic_audio} or set(prof.dynamic_bands)
+        if band not in bands or not lo <= value <= hi:
+            raise ValueError(f"band must be one of {sorted(bands)} and value {lo}..{hi}")
         self._write(protocol.CMD_DYNAMIC_AUDIO_WRITE, parsing.encode_dynamic_band(band, value, lo, hi))
         bands = self.read_dynamic_audio()
         got = next((b.value for b in bands if b.band == band), None)
@@ -491,7 +518,10 @@ class Buds:
 
     def save_custom_eq(self, eq_id: int, name: str, bands: list[tuple[int, int]]) -> list[parsing.CustomEq]:
         """Create (eq_id None/0 -> action 1) or overwrite a custom preset; the buds select it."""
-        lo, hi = model.CUSTOM_EQ_GAIN_RANGE
+        spec = self.active_profile.custom_eq
+        if spec is None:
+            raise ValueError("this profile does not describe a custom equaliser (pick a profile that does, or add it to yours)")
+        lo, hi = spec.gain_min, spec.gain_max
         if any(not lo <= g <= hi for _, g in bands):
             raise ValueError(f"custom EQ gain must be within {lo}..{hi} dB")
         if not 1 <= len(name.encode()) <= 32:
@@ -508,6 +538,20 @@ class Buds:
             raise self._verify_failed(f"custom EQ {name!r} is not on the buds after the write")
         return eqs
 
+    def select_eq(self, eq_id: int) -> int | None:
+        """Switch to a built-in preset or one of the custom presets (a custom one is selected
+        by saving it again, which is how the buds make a custom preset active)."""
+        customs = self.state.custom_eqs
+        if not any(e.id == eq_id for e in customs) and self.supports(protocol.CMD_CUSTOM_EQ_LIST):
+            customs = self.read_custom_eqs()
+        custom = next((e for e in customs if e.id == eq_id), None)
+        if custom is None:
+            return self.set_eq_preset(eq_id)
+        self.save_custom_eq(custom.id, custom.name, [tuple(b) for b in custom.bands])
+        if self.state.eq != eq_id:
+            raise self._verify_failed(f"asked for custom EQ {eq_id}, buds report {self.state.eq!r}")
+        return self.state.eq
+
     def delete_custom_eq(self, eq_id: int) -> list[parsing.CustomEq]:
         self._write(protocol.CMD_CUSTOM_EQ_WRITE, parsing.encode_custom_eq(3, eq_id, "", []), timeout=4.0)
         eqs = self.read_custom_eqs()
@@ -516,12 +560,24 @@ class Buds:
             raise self._verify_failed(f"custom EQ {eq_id} is still on the buds after deleting it")
         return eqs
 
-    def set_anc(self, mask: int) -> int | None:
-        self._write(protocol.CMD_ANC_WRITE, b"\x01\x01" + protocol.mask_to_bytes(mask))
+    def set_anc(self, value: int, expect: int | None = None) -> int | None:
+        """Write a raw noise-control value and check the buds report ``expect`` (default: the
+        same number; some models report a different number than they are written)."""
+        want = value if expect is None else expect
+        self._write(protocol.CMD_ANC_WRITE, b"\x01\x01" + protocol.mask_to_bytes(value))
         got = self.read_anc()
-        if got != mask:
-            raise self._verify_failed(f"asked for noise mode 0x{mask:02X}, buds report {got!r}")
+        if got != want:
+            raise self._verify_failed(f"asked for noise mode 0x{value:02X}, buds report {got!r} (expected 0x{want:02X})")
         return got
+
+    def set_anc_mode(self, mode: "profiles.AncMode | str") -> int | None:
+        """Select a mode of the profile in use, by object or key."""
+        if isinstance(mode, str):
+            try:
+                mode = self.active_profile.mode(mode)
+            except KeyError:
+                raise BudsError(f"the profile {self.active_profile.key!r} has no noise-control mode {mode!r}") from None
+        return self.set_anc(mode.set, expect=mode.report)
 
     def set_feature(self, feature_id: int, on: bool, *, verify: bool = True) -> bool | None:
         self._write(protocol.CMD_FEATURE_WRITE, bytes([feature_id, 1 if on else 0]))

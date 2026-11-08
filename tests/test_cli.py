@@ -46,7 +46,7 @@ def run(capsys, *argv):
 def test_status_text_and_json(sim, capsys):
     code, out, _ = run(capsys, "status")
     assert code == 0
-    assert "138.138.105" in out and "Transparency" in out and "left 70%" in out
+    assert "138.138.105" in out and "Transparency" in out and "left 70%" in out and "realme Buds Air7 Pro" in out
     code, out, _ = run(capsys, "status", "--json")
     data = json.loads(out)
     assert data["noise_control"] == "Transparency" and data["features"]["spatial"] is False
@@ -112,14 +112,19 @@ def test_raw_command(sim, capsys):
     assert run(capsys, "raw", "zz")[0] == 1
 
 
-def test_every_anc_mode_and_feature_name_parses():
+def test_every_feature_of_every_profile_gets_a_command_and_modes_are_checked_at_run_time():
+    from realmebuds import profiles
+
     ap = cli.build_parser()
-    for m in model.ANC_MODES:
-        ap.parse_args(["anc", m.key])
-    for f in model.FEATURES:
-        if f.key not in ("dynamic-audio", "golden-sound"):
-            assert ap.parse_args([f.key, "on"]).state is True
+    for prof in profiles.load_all().values():
+        for f in prof.features:
+            if f.key not in profiles.RESERVED_FEATURE_KEYS:
+                assert ap.parse_args([f.key, "on"]).state is True
+        for m in prof.anc_modes:  # any string parses; the connected model decides what is valid
+            ap.parse_args(["anc", m.key])
     assert ap.parse_args(["golden-sound", "on"]).action == "on"
+    assert ap.parse_args(["switch", "0x1B", "off"]).state is False
+
 
 
 def test_band_argument_forms():
@@ -148,7 +153,7 @@ def test_raw_reports_missing_reply_without_failing(sim, capsys):
 
 def test_gesture_functions_outside_the_apps_list_are_refused_unless_forced(sim, capsys):
     code, _, err = run(capsys, "gesture", "left", "double", "volume-up")
-    assert code == 1 and "only offers" in err and "play-pause" in err
+    assert code == 1 and "offers" in err and "play-pause" in err and "--force" in err
     assert run(capsys, "gesture", "left", "double", "volume-up", "--force")[0] == 0
     _, out, _ = run(capsys, "gestures")
     assert "Volume up" in out

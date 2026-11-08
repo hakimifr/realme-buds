@@ -41,7 +41,7 @@ def test_initialise_and_sync_fill_the_state(pair):
     st = buds.state
     assert errors == {}
     assert st.firmware == "138.138.105"
-    assert st.product_id == "065414"
+    assert st.product_id == "064C12"
     assert st.battery == {1: (70, False), 2: (68, False)}
     assert st.wearing == {1: 3, 2: 3, 3: 0}
     assert st.anc == model.ANC_TRANSPARENCY
