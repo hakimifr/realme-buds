@@ -8,31 +8,52 @@ buds speak the same protocol family as the Air7 Pro.
 
 ## Do OPPO (and OnePlus) buds use the same protocol?
 
-Probably, for many models, but I have not tested any. What I know and from where:
+**Yes, the protocol is the same.** Checked by decompiling HeyMelody 117006006 (the app OPPO and OnePlus
+buds use) and comparing it with realme Link 5.8.811.2814:
 
-- realme Link 5.8.811.2814 contains **three** earbud implementations. Each model's cloud config
-  names its family in `sdkVendor`: `VENDOR_TL`, `VENDOR_WM` or `VENDOR_LD`
-  (`HeadsetManagerFactory`, found by decompiling the app).
-- `VENDOR_TL` is the one this project speaks: Bluetooth Classic RFCOMM on service
-  `0000079A-D102-11E1-9B23-00025B00A5A5`, frames starting with `AA`. The Air7 Pro is one of these.
-- `VENDOR_WM` uses plain SPP (`00001101-…`) with a different, simpler protocol, and `VENDOR_LD` is built on
-  Airoha's SDK. **Realme buds on those chips cannot be driven by this code.**
-- Other people's public work (QuickBuds, OppoPodsManager) drives OPPO Enco, OnePlus and realme buds with
-  this same TL-style protocol, and HeyMelody (OPPO/OnePlus's own app) speaks it. That is where my belief about
-  OPPO comes from. I did not verify it from the HeyMelody app, and some newer models use Bluetooth LE instead
-  of RFCOMM, which this project does not do yet.
+- **Same framing.** HeyMelody's frame class is named `OPOv1Wrapper`. A frame starts with `0xAA`, then a length
+  in 7-bit groups (high bit = more), then a control byte whose low two bits mark fragments (0 whole, otherwise
+  first/middle/last), a zero byte, and a fragment counter when fragmented. That is exactly what `protocol.Framer` parses.
+- **Same service id.** It uses `0000079A-D102-11E1-9B23-00025B00A5A5` (and `00001107-D102-…`, the same two ids
+  this project tries).
+- **Same commands.** The command numbers and their meanings line up one to one with realme Link's:
 
-Within the TL family the framing, command ids and the connect sequence are the same for every model.
-What differs per model is data, and that is what a profile holds: the product id, what the noise-control
-numbers mean (some models report a different number than the one you write), which feature ids exist,
-which functions each gesture accepts, the EQ presets, whether the model has a fit test or Golden Sound.
+  | Number | Hex | HeyMelody name | Used here for |
+  | --- | --- | --- | --- |
+  | 1024 | `0400` | `setFindMode` | find my earbuds |
+  | 1027 | `0403` | `setSwitchFeature` | every feature switch |
+  | 1028 | `0404` | `setCurrentNoiseReduction`, `setSupportNoiseReduction` | noise control, touch-and-hold cycle |
+  | 1029 | `0405` | `switchCompactnessDetectionStatus` | fit test |
+  | 1030 | `0406` | `setEqMode` | EQ preset |
+  | 1037, 1038 | `040D`, `040E` | `processHearingEnhancementDetection`, `switchProcessHearingDetectionParams` | Golden Sound test and tones |
+  | 1041 | `0411` | `setEarRestoreData` | Golden Sound restore data |
+
+So the same library should drive OPPO and OnePlus buds, with the per-model data in a profile. **It has not been
+tried on any of them**, and what a given OPPO model reports for noise control, which feature ids it has and so on
+still have to be found per model (see below).
+
+**What does not carry over.** Two things in HeyMelody mean not every model is reachable:
+
+1. **The transport is chosen per model.** Each model's config has an `isSupportSpp` flag and a service `uuid`.
+   Some models use Bluetooth Classic RFCOMM (what this project does). Others use **BLE GATT** (HeyMelody has a
+   `GattDevice` class using services `0000079A-…`, `0100079A-…`, `0200079A-…`) and some are LE-only. Same frames, different
+   pipe. This project has no GATT transport yet, so BLE-only models can be profiled but not connected to.
+2. **The model list is not readable.** HeyMelody ships its model data encrypted (`res/raw/heymelody_app_whitelist.json`)
+   and fetches the rest from the cloud, so I could not read which models use which transport. I did not try to decrypt it.
+
+How to tell for your buds: `realme-buds devices` shows a `realme control service` flag when the buds advertise the
+RFCOMM service. If they do not, and HeyMelody reaches them anyway, they are probably BLE-only.
+
+In realme Link the picture is different: it holds three implementations and picks one per model from the cloud config
+(`sdkVendor`: `VENDOR_TL`, `VENDOR_WM`, `VENDOR_LD`). `TL` is this protocol. `WM` is plain SPP with its own commands and
+`LD` is built on Airoha's SDK, so realme buds on those chips are not reachable with this code.
 
 | Family | Transport | Supported here |
 | --- | --- | --- |
-| `tl` | RFCOMM, service `0000079A-…` | yes |
-| `wm` | RFCOMM, `00001101-…` (SPP) | no |
-| `ld` | Airoha SDK | no |
-| BLE-only OPPO/OnePlus models | GATT | no |
+| `tl` over RFCOMM | `0000079A-…` | yes |
+| `tl` over BLE GATT (OPPO, OnePlus, newer realme) | `0000079A-…` / `0100079A-…` / `0200079A-…` | no, not yet |
+| realme `wm` | `00001101-…` (SPP) | no |
+| realme `ld` | Airoha SDK | no |
 
 ## Quick path
 
@@ -141,7 +162,7 @@ many modes the vendor app insists on.
 | `features[].key` | `golden-sound` and `dynamic-audio` are reserved for the dedicated screens |
 | `gestures.options` | keys are action numbers listed in `actions`; values are function codes |
 
-Evidence levels: **app** the vendor's own app sends exactly this; **reported** seen on real buds of this model;
+Evidence levels: **app** a vendor app (realme Link or HeyMelody) sends exactly this; **reported** seen on real buds of this model;
 **family** seen on other models of the family; **guess** plausible only. Anything below `reported` is shown as experimental.
 
 ## Sharing it

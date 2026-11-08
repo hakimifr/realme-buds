@@ -76,11 +76,12 @@ realme-buds --profile-file mine.json status  # try it
 realme-buds --profile realme-buds-air7-pro status   # force a profile on buds it did not recognise
 ```
 
-**Do OPPO buds use the same protocol?** Probably for many models, but this project has not been
-tried on any. realme Link contains three earbud protocols (`VENDOR_TL`, `VENDOR_WM`, `VENDOR_LD`) and this
-code speaks `TL`, which other projects document on OPPO Enco, OnePlus and realme buds. Realme buds on the
-other two chips, and BLE-only models, are out of reach for now. Details and the full how-to are in
-[docs/ADDING_A_DEVICE.md](docs/ADDING_A_DEVICE.md).
+**Do OPPO and OnePlus buds use the same protocol?** Yes. I compared HeyMelody (the OPPO/OnePlus app) with
+realme Link by decompiling both: same frame format, same service id and same command numbers. It has not been tried
+on any OPPO or OnePlus buds, and each model still needs a profile. The catch is the transport: HeyMelody picks
+Bluetooth Classic or BLE per model, and this project only does Classic (RFCOMM). So models that are BLE-only can
+get a profile but cannot be connected yet. Realme buds on two other chip families are out of reach too. Details and the
+how-to are in [docs/ADDING_A_DEVICE.md](docs/ADDING_A_DEVICE.md).
 
 ## Setup on Fedora
 

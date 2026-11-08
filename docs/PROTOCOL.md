@@ -254,6 +254,15 @@ The app picks an implementation per model from its cloud config (`HeadsetManager
 
 The Air7 Pro is `TL`. Which family a model uses is in the cloud config, which was not read.
 
+## HeyMelody (OPPO and OnePlus) uses the same protocol
+
+Decompiled from HeyMelody 117006006 (`com.heytap.headset`). Same frame (`OPOv1Wrapper`: `AA`, 7-bit length,
+control/fragment byte, `00`), same service `0000079A-D102-11E1-9B23-00025B00A5A5`, same command numbers
+(1024 find, 1027 feature switch, 1028 noise control, 1029 fit test, 1030 EQ, 1037/1038 hearing test, 1041 restore
+data, 1050 codec, 1058 spatial type). The difference is the transport: each model's config has `isSupportSpp` and a
+`uuid`, and HeyMelody has a BLE `GattDevice` (services `0000079A-`, `0100079A-`, `0200079A-D102-11E1-9B23-00025B00A5A5`,
+Client Characteristic Configuration `00002902-…`) and an LE-only mode. Its model list is encrypted and was not read.
+
 ## Not implemented on purpose
 
 MindFlow and AI Translate (they depend on the phone app), firmware update, personalised ANC,
