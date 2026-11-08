@@ -70,10 +70,10 @@ def test_feature_the_buds_lack_is_refused_without_writing(sim, capsys):
 
 
 def test_gesture_and_hold_cycle(sim, capsys):
-    assert run(capsys, "gesture", "right", "triple", "volume-up")[0] == 0
+    assert run(capsys, "gesture", "right", "triple", "game-mode")[0] == 0
     assert run(capsys, "hold-cycle", "off,transparency,anc")[0] == 0
     _, out, _ = run(capsys, "gestures")
-    assert "Volume up" in out
+    assert "Game mode" in out
     assert "Off" in out and "Transparency" in out
 
 
@@ -117,8 +117,9 @@ def test_every_anc_mode_and_feature_name_parses():
     for m in model.ANC_MODES:
         ap.parse_args(["anc", m.key])
     for f in model.FEATURES:
-        if f.key != "dynamic-audio":
+        if f.key not in ("dynamic-audio", "golden-sound"):
             assert ap.parse_args([f.key, "on"]).state is True
+    assert ap.parse_args(["golden-sound", "on"]).action == "on"
 
 
 def test_band_argument_forms():
@@ -143,3 +144,17 @@ def test_raw_reports_missing_reply_without_failing(sim, capsys):
     sim["kwargs"] = {"ignore_commands": {0x041B}}
     code, out, _ = run(capsys, "raw", "041b", "fb050201")
     assert code == 0 and "no reply" in out
+
+
+def test_gesture_functions_outside_the_apps_list_are_refused_unless_forced(sim, capsys):
+    code, _, err = run(capsys, "gesture", "left", "double", "volume-up")
+    assert code == 1 and "only offers" in err and "play-pause" in err
+    assert run(capsys, "gesture", "left", "double", "volume-up", "--force")[0] == 0
+    _, out, _ = run(capsys, "gestures")
+    assert "Volume up" in out
+
+
+def test_hold_cycle_needs_two_modes_unless_forced(sim, capsys):
+    code, _, err = run(capsys, "hold-cycle", "off")
+    assert code == 1 and "at least 2" in err
+    assert run(capsys, "hold-cycle", "off", "--force")[0] == 0

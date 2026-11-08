@@ -74,6 +74,7 @@ FEATURES = (
     Feature("game-mode", 0x06, "Game mode", "Low-latency audio", "app"),
     Feature("auto-answer", 0x08, "Auto-answer", "Answer a call when a bud is taken out of the case", "app"),
     Feature("enhance-voices", 0x09, "Enhance voices", "Diminish ambient sound, lift voices (transparency)", "app"),
+    Feature("golden-sound", 0x0B, "Golden Sound", "Hearing profile made by the hearing test", "app"),
     Feature("dual", 0x11, "Dual-device connection", "Stay connected to two devices", "app"),
     Feature("lhdc", 0x18, "High-definition sound (LHDC)", "Buds reconnect after changing this", "app", drops_link=True),
     Feature("wind", 0x1A, "Wind noise reduction", "", "app"),
@@ -148,8 +149,21 @@ GESTURE_FN_BY_CODE = {g.code: g for g in GESTURE_FNS}
 # Actions the Air7 Pro lets you remap, per realme Link (per-bud double, triple, hold).
 REMAPPABLE_ACTIONS = (2, 3, 4)
 
-# Which modes the hold gesture can cycle through (a bitmask on the wire).
+# Which functions each gesture accepts on the Air7 Pro, from realme Link's model data for
+# product id 064C12 (as published by the QuickBuds project; confirmed by an Air7 Pro owner):
+#   double tap: none, play/pause, voice assistant, next
+#   triple tap: none, voice assistant, previous, next, game mode
+#   hold:       none, voice assistant, noise-control cycle, game mode
+GESTURE_OPTIONS = {
+    2: (0x00, 0x01, 0x03, 0x06),
+    3: (0x00, 0x03, 0x05, 0x06, 0x11),
+    4: (0x00, 0x03, 0x08, 0x11),
+}
+
+# Which modes the hold gesture can cycle through (a bitmask on the wire), and how many the
+# app insists on (realme Link: "minSelectCount": 2).
 HOLD_CYCLE_MODES = ("off", "transparency", "max")
+HOLD_CYCLE_MIN = 2
 
 # ---------------------------------------------------------------------------
 # Equaliser. 0x0406 <id> selects a built-in preset.
@@ -197,3 +211,45 @@ def wear_label(status: int) -> str:
     if status in (1, 5):
         return "out of ear"
     return f"unknown ({status})"
+
+
+# ---------------------------------------------------------------------------
+# Earbud fit test. Result push: `04 <side> <status> <side> <status>`.
+
+FIT_GOOD = 1
+FIT_AVERAGE = 0
+FIT_RETRY = (2, 3)
+FIT_REMOVED = 4
+FIT_INTERRUPTED = 5
+
+
+def fit_label(status: int) -> str:
+    """Wording follows realme Link: 1 good, 0 average, anything else not listed is a poor seal."""
+    if status == FIT_GOOD:
+        return "good seal"
+    if status == FIT_AVERAGE:
+        return "average seal, try another ear tip or adjust"
+    return "poor seal, adjust the bud or try another ear tip"
+
+
+# ---------------------------------------------------------------------------
+# Golden Sound (the app calls it HearId): ear scan, then a hearing test, then apply.
+# All numbers below are the app's own (GoldenHearIdDetectingViewModel).
+
+HEARING_SIDES = (SIDE_LEFT, SIDE_RIGHT)
+HEARING_BANDS = (1, 2, 3, 4, 5, 6)
+# The test visits the left ear's six bands, then the right ear's.
+HEARING_NODES = tuple((side, band) for side in HEARING_SIDES for band in HEARING_BANDS)
+# Slider stops, quietest to loudest (dB). The tone plays at the chosen stop.
+HEARING_STOPS = (-120, -88, -55, -52, -49, -45, -41, -38, -35, -30, -25, -22, -19, -15, -11, -8, -5, -1, 3, 5, 7, 10, 13, 15, 17)
+# The values a profile can actually store; a stop is snapped to the nearest of these.
+HEARING_RESULT_VALUES = (-55, -49, -41, -35, -25, -19, -11, -5, 3, 7, 13, 17)
+HEARING_START_DB = -25
+HEARING_LOUD_WARNING_DB = 10
+# The id of the "restore data" block the app sends before applying a profile.
+HEARING_RESTORE_TYPE_ID = 0x0B
+EAR_SCAN_BYTES = 168
+
+
+def snap_hearing_value(db: int) -> int:
+    return min(HEARING_RESULT_VALUES, key=lambda v: (abs(v - db), v))

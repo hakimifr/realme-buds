@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import random
 import sys
 import time
 from typing import Iterator
 
-from . import model
+from . import model, parsing
 from .client import Buds, BudsError, State
 from .session import connect_buds
 from .transport import TransportError, list_devices
@@ -327,9 +328,11 @@ def cmd_gesture(args) -> int:
     side = model.SIDES[args.side]
     action = model.ACTIONS[args.action]
     fn = model.GESTURE_FN_BY_KEY[args.function]
+    allowed = model.GESTURE_OPTIONS.get(action)
+    if allowed and fn.code not in allowed and not args.force:
+        names = ", ".join(model.GESTURE_FN_BY_CODE[c].key for c in allowed)
+        raise CliError(f"realme Link only offers these for a {args.action}: {names}. Use --force to try '{fn.key}' anyway")
     with open_buds(args) as buds:
-        if fn.evidence != "reported":
-            print(f"note: '{fn.label}' is {fn.evidence}-level knowledge; the buds will refuse it if unsupported", file=sys.stderr)
         buds.set_gesture(side, action, fn.code)
         print(f"{args.side} {model.ACTION_LABELS[action].lower()}: {fn.label}")
         if fn.code == model.FN_ANC_CYCLE:
@@ -347,6 +350,8 @@ def cmd_hold_cycle(args) -> int:
         if key not in HOLD_CYCLE_CHOICES:
             raise CliError(f"unknown mode {part!r}; use a comma list of off, transparency, anc")
         mask |= HOLD_CYCLE_CHOICES[key]
+    if bin(mask).count("1") < model.HOLD_CYCLE_MIN and not args.force:
+        raise CliError(f"realme Link needs at least {model.HOLD_CYCLE_MIN} modes in the cycle. Use --force to try fewer")
     with open_buds(args) as buds:
         buds.set_hold_cycle(mask)
         print(f"touch-and-hold cycles: {mask_names(mask)}")
@@ -357,6 +362,112 @@ def cmd_find(args) -> int:
     with open_buds(args) as buds:
         buds.find_buds(args.state)
         print("the buds are ringing (take them out of your ears!)" if args.state else "stopped")
+    return 0
+
+
+def cmd_fit_test(args) -> int:
+    with open_buds(args) as buds:
+        print("Put both earbuds in your ears and keep still. The buds play a short sound while they measure.")
+        result = buds.run_fit_test(timeout=args.timeout)
+        for side, name in ((1, "left"), (2, "right")):
+            if side in result:
+                print(f"{name} bud: {model.fit_label(result[side])}")
+    return 0
+
+
+def _ask(prompt: str) -> str:
+    """The only place the interactive commands read the keyboard (tests replace it)."""
+    return input(prompt)
+
+
+def format_hearing_record(rec) -> str:
+    lines = [f"Profile: {rec.name or '(unnamed)'}  (id {rec.id})"]
+    by = {(e.side, e.band): e.db for e in rec.entries}
+    lines.append("            " + "  ".join(f"band {b}" for b in model.HEARING_BANDS))
+    for side, name in ((1, "left ear "), (2, "right ear")):
+        lines.append(f"{name}   " + "  ".join(f"{by.get((side, b), 0):>6d}" for b in model.HEARING_BANDS))
+    return "\n".join(lines)
+
+
+def cmd_golden_sound(args) -> int:
+    action = args.action or "status"
+    with open_buds(args) as buds:
+        if action in ("on", "off"):
+            buds.read_features([0x0B])
+            if 0x0B not in buds.state.features:
+                raise CliError("these buds do not report Golden Sound (feature 0x0B); nothing was changed")
+            buds.set_golden_sound(action == "on")
+            print(f"Golden Sound: {action}")
+        elif action == "status":
+            buds.read_features([0x0B])
+            state = buds.state.features.get(0x0B)
+            print("Golden Sound: " + ("not reported by these buds" if state is None else "on" if state else "off"))
+            rec = buds.read_hearing_record()
+            if rec and rec.entries:
+                print(format_hearing_record(rec))
+            else:
+                print("No hearing profile is stored on the buds. Run: realme-buds golden-sound test")
+        else:
+            return run_hearing_wizard(buds, args)
+    return 0
+
+
+def run_hearing_wizard(buds, args) -> int:
+    print(UNTESTED, file=sys.stderr)
+    print(
+        "\nGolden Sound hearing test\n"
+        "  - Sit somewhere quiet and keep the earbuds in both ears.\n"
+        "  - You will hear a tone in one ear at a time, 12 in total (six pitches per ear).\n"
+        "  - Make each tone as quiet as you can while still just hearing it.\n"
+        "  - It starts quiet. Loud steps ask for confirmation first.\n"
+    )
+    if not args.yes and _ask("Press Enter to begin, or q to cancel: ").strip().lower() == "q":
+        return 1
+    uid = random.randint(1, 2**31 - 1)
+    scan = None
+    if not args.skip_scan:
+        print("Measuring your ear canals (about 10 seconds)...")
+        scan = buds.ear_scan(uid)
+        print("Ear scan done.")
+    stops = model.HEARING_STOPS
+    results: list[tuple[int, int, int]] = []
+    buds.hearing_test_start()
+    try:
+        for n, (side, band) in enumerate(model.HEARING_NODES, 1):
+            idx = stops.index(model.HEARING_START_DB)
+            confirmed_loud = False
+            buds.play_tone(side, band, stops[idx])
+            ear = "left" if side == 1 else "right"
+            while True:
+                answer = _ask(f"[{n}/12 {ear} ear, pitch {band}/6, {stops[idx]:+d} dB]  u = louder, d = quieter, Enter = barely audible, q = quit: ").strip().lower()
+                if answer == "q":
+                    print("Cancelled, nothing was saved.")
+                    return 1
+                if answer == "":
+                    results.append((side, band, model.snap_hearing_value(stops[idx])))
+                    break
+                if answer in ("u", "d"):
+                    new = min(idx + 1, len(stops) - 1) if answer == "u" else max(idx - 1, 0)
+                    if stops[new] >= model.HEARING_LOUD_WARNING_DB and not confirmed_loud:
+                        if _ask("That is loud. Play it anyway? [y/N] ").strip().lower() != "y":
+                            continue
+                        confirmed_loud = True
+                    idx = new
+                    buds.play_tone(side, band, stops[idx])
+            buds.stop_tone()
+    finally:
+        try:
+            buds.hearing_test_stop()
+        except (BudsError, TimeoutError):
+            pass
+    rec = parsing.HearingRecord(tuple(parsing.HearingEntry(*r) for r in results), uid, "")
+    print("\n" + format_hearing_record(rec))
+    name = args.name or time.strftime("%Y/%m/%d %H:%M")
+    if not args.yes and _ask(f"\nSave this as '{name}' and switch Golden Sound on? [y/N] ").strip().lower() != "y":
+        print("Not saved.")
+        return 1
+    buds.apply_golden_sound(results, name, uid, scan.data if scan else None)
+    print(f"Saved '{name}' on the buds and switched Golden Sound on.")
     return 0
 
 
@@ -434,8 +545,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_anc)
 
     for feat in model.FEATURES:
-        if feat.key == "dynamic-audio":
-            continue  # shares its name with the band command below
+        if feat.key in ("dynamic-audio", "golden-sound"):
+            continue  # these have richer commands of their own below
         p = sub.add_parser(feat.key, help=f"{feat.label} on/off" + ("" if feat.evidence == "reported" else " (experimental)"))
         p.add_argument("state", type=on_off)
         p.set_defaults(func=cmd_feature, feature=feat.key)
@@ -464,19 +575,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_dynamic_audio)
 
     sub.add_parser("gestures", help="show touch controls").set_defaults(func=cmd_gestures)
-    p = sub.add_parser("gesture", help="remap one touch control")
+    p = sub.add_parser("gesture", help="remap one touch control (double: none, play-pause, assistant, next; triple: none, assistant, previous, next, game-mode; hold: none, assistant, anc-cycle, game-mode)")
     p.add_argument("side", choices=list(model.SIDES))
     p.add_argument("action", choices=[a for a in model.ACTIONS if model.ACTIONS[a] in model.REMAPPABLE_ACTIONS])
     p.add_argument("function", choices=[g.key for g in model.GESTURE_FNS])
+    p.add_argument("--force", action="store_true", help="send a function the app does not offer for this gesture")
     p.set_defaults(func=cmd_gesture)
 
     p = sub.add_parser("hold-cycle", help="which noise modes touch-and-hold cycles, e.g. off,transparency,anc")
     p.add_argument("modes")
+    p.add_argument("--force", action="store_true", help="allow fewer modes than the app does")
     p.set_defaults(func=cmd_hold_cycle)
 
     p = sub.add_parser("find", help="make the buds ring")
     p.add_argument("state", type=on_off)
     p.set_defaults(func=cmd_find)
+
+    p = sub.add_parser("fit-test", help="check how well the earbuds seal in your ears (both in, keep still)")
+    p.add_argument("--timeout", type=float, default=30.0, help="seconds to wait for the result")
+    p.set_defaults(func=cmd_fit_test)
+
+    p = sub.add_parser("golden-sound", help="hearing profile: status (default) | on | off | test")
+    p.add_argument("action", nargs="?", choices=["status", "on", "off", "test"])
+    p.add_argument("--name", help="name for the profile made by 'test' (default: the date)")
+    p.add_argument("--skip-scan", action="store_true", help="test without the ear-canal scan (not what the app does)")
+    p.add_argument("--yes", action="store_true", help="do not ask for confirmation before starting and saving")
+    p.set_defaults(func=cmd_golden_sound)
 
     sub.add_parser("watch", help="print changes as they happen (also from the buds' own touch controls)").set_defaults(func=cmd_watch)
 

@@ -52,6 +52,12 @@ class State:
     custom_eqs: list[parsing.CustomEq] = field(default_factory=list)
     dynamic_audio: list[parsing.DynamicBand] = field(default_factory=list)
     last_gesture_event: bytes | None = None
+    fit_test: dict[int, int] | None = None  # side -> raw status of the latest result push
+    fit_test_seq: int = 0
+    hearing_record: parsing.HearingRecord | None = None
+    ear_scan: parsing.EarScan | None = None
+    ear_scan_seq: int = 0
+    hearing_status: tuple[int, int] | None = None  # (kind, status) of the last 0x08 push
 
 
 Listener = Callable[[str, State], None]
@@ -89,6 +95,7 @@ class Buds:
         self._closing = False
         self._reader: threading.Thread | None = None
         self.last_write_acked = True
+        self._cond = threading.Condition()
 
     # -- lifecycle --------------------------------------------------------
 
@@ -123,6 +130,8 @@ class Buds:
     # -- plumbing ---------------------------------------------------------
 
     def _emit(self, event: str) -> None:
+        with self._cond:
+            self._cond.notify_all()
         for fn in list(self._listeners):
             try:
                 fn(event, self.state)
@@ -263,6 +272,20 @@ class Buds:
             elif code == protocol.EV_GESTURE:
                 st.last_gesture_event = bytes(body)
                 event = "gesture-fired"
+            elif code == protocol.EV_FIT_TEST:
+                st.fit_test = parsing.parse_fit_test(body)
+                st.fit_test_seq += 1
+                event = "fit-test"
+            elif code == protocol.EV_EAR_SCAN:
+                scan = parsing.parse_ear_scan_event(body)
+                if scan is None:
+                    return
+                st.ear_scan = scan
+                st.ear_scan_seq += 1
+                event = "ear-scan"
+            elif code == protocol.EV_HEARING_STATUS and len(body) >= 2:
+                st.hearing_status = (body[0], body[1])
+                event = "hearing-status"
             else:
                 return
         self._emit(event)
@@ -560,3 +583,136 @@ class Buds:
 
     def find_buds(self, on: bool) -> None:
         self._write(protocol.CMD_FIND, b"\x01" if on else b"\x00")
+
+
+    # -- waiting for pushes -------------------------------------------------
+
+    def _wait_for(self, predicate, timeout: float) -> bool:
+        """Block until ``predicate()`` is true, the link drops, or ``timeout`` passes."""
+        with self._cond:
+            return self._cond.wait_for(lambda: predicate() or not self.state.connected, timeout) and self.state.connected
+
+    # -- earbud fit test ----------------------------------------------------
+
+    def run_fit_test(self, timeout: float = 30.0) -> dict[int, int]:
+        """Run the fit test and return ``{side: raw status}`` (1 left, 2 right).
+
+        Both buds must be in the ears. The result arrives as a push (event 4), which the
+        app handles even for events it did not register for, so this does the same.
+        """
+        self.read_wearing()
+        out_of_ear = [c for c in (1, 2) if self.state.wearing.get(c) not in model.IN_EAR_STATUSES]
+        if out_of_ear:
+            raise BudsError("put both earbuds in your ears first, the fit test needs both")
+        if protocol.EV_FIT_TEST not in self.state.broadcast_codes:
+            # Not on the buds' list of offered events. Asking is harmless if they ignore it.
+            self._write(protocol.CMD_REGISTER_EVENT, bytes([protocol.EV_FIT_TEST]), timeout=0.7)
+        start_seq = self.state.fit_test_seq
+        self._write(protocol.CMD_FIT_TEST, b"\x01", timeout=2.0)
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                seen = start_seq
+                if remaining <= 0 or not self._wait_for(lambda: self.state.fit_test_seq != seen, remaining):
+                    if not self.state.connected:
+                        raise LinkClosed("link closed during the fit test")
+                    raise BudsError(
+                        "no fit-test result arrived. These buds may not push it unprompted; "
+                        "rerun with --trace and send the output"
+                    )
+                start_seq = self.state.fit_test_seq
+                result = dict(self.state.fit_test or {})
+                statuses = set(result.values())
+                if model.FIT_INTERRUPTED in statuses:
+                    continue  # the app ignores this one and keeps waiting
+                if statuses & set(model.FIT_RETRY):
+                    raise BudsError("the fit test failed, try again (keep still and keep both buds in)")
+                if model.FIT_REMOVED in statuses:
+                    raise BudsError("a bud was taken out during the fit test")
+                return result
+        finally:
+            try:
+                self._write(protocol.CMD_FIT_TEST, b"\x00", timeout=1.0)
+            except (BudsError, TimeoutError):
+                pass
+
+    # -- Golden Sound (hearing profile) -------------------------------------
+
+    def read_hearing_record(self) -> parsing.HearingRecord | None:
+        """The profile stored on the buds (they hold only the active one)."""
+        try:
+            pkt = self.request(protocol.CMD_HEARING_RECORD, timeout=2.0)
+        except (Nack, TimeoutError):
+            rec = None
+        else:
+            rec = parsing.parse_hearing_record(pkt.payload)
+        with self._state_lock:
+            self.state.hearing_record = rec
+        self._emit("hearing-record")
+        return rec
+
+    def set_golden_sound(self, on: bool) -> bool | None:
+        return self.set_feature(0x0B, on)
+
+    def hearing_test_start(self) -> None:
+        self._write(protocol.CMD_HEARING_DETECT, bytes([2, 1]))
+
+    def hearing_test_stop(self) -> None:
+        self.stop_tone()
+        self._write(protocol.CMD_HEARING_DETECT, bytes([2, 0]))
+
+    def play_tone(self, side: int, band: int, db: int) -> None:
+        """Play one test tone in one ear. Stops the previous one first, like the app."""
+        if side not in model.HEARING_SIDES or band not in model.HEARING_BANDS:
+            raise ValueError("side must be 1 or 2 and band 1-6")
+        if db not in model.HEARING_STOPS:
+            raise ValueError(f"tone level must be one of {model.HEARING_STOPS}")
+        self.stop_tone()
+        self._write(protocol.CMD_HEARING_PARAMS, parsing.encode_tone(side, band, db))
+
+    def stop_tone(self) -> None:
+        self._write(protocol.CMD_HEARING_PARAMS, bytes([4]), timeout=0.8)
+
+    def ear_scan(self, uid: int, timeout: float = 30.0) -> parsing.EarScan:
+        """Measure the ear canals (both buds in). Returns the scan data to store with a profile."""
+        self.read_wearing()
+        if any(self.state.wearing.get(c) not in model.IN_EAR_STATUSES for c in (1, 2)):
+            raise BudsError("put both earbuds in your ears first, the ear scan needs both")
+        seq = self.state.ear_scan_seq
+        self._write(protocol.CMD_HEARING_DETECT, parsing.encode_ear_scan_start(1, uid), timeout=2.0)
+        try:
+            ok = self._wait_for(lambda: self.state.ear_scan_seq != seq and self.state.ear_scan is not None, timeout)
+            if not self.state.connected:
+                raise LinkClosed("link closed during the ear scan")
+            scan = self.state.ear_scan
+            if not ok or scan is None:
+                raise BudsError("the ear scan produced no result; check both buds are in and the room is quiet")
+            return scan
+        finally:
+            try:
+                self._write(protocol.CMD_HEARING_DETECT, parsing.encode_ear_scan_start(0, uid), timeout=1.0)
+            except (BudsError, TimeoutError):
+                pass
+
+    def apply_golden_sound(self, entries, name: str, uid: int, scan_data: bytes | None) -> parsing.HearingRecord:
+        """Store a hearing profile on the buds and switch Golden Sound on.
+
+        Same order as realme Link: restore data, profile, ear-scan data, feature switch.
+        """
+        entries = [(int(a), int(b), int(c)) for a, b, c in entries]
+        if len(entries) != len(model.HEARING_NODES) or {(a, b) for a, b, _ in entries} != set(model.HEARING_NODES):
+            raise ValueError("a profile needs one value for each of the six bands of each ear")
+        if any(db not in model.HEARING_RESULT_VALUES for _, _, db in entries):
+            raise ValueError(f"profile values must be one of {model.HEARING_RESULT_VALUES}")
+        if not 0 < uid < 2**31:
+            raise ValueError("profile id must be a positive 31-bit number")
+        self._write(protocol.CMD_RESTORE_DATA, bytes([1, 1, 1, 0, model.HEARING_RESTORE_TYPE_ID]))
+        self._write(protocol.CMD_HEARING_PARAMS, parsing.encode_hearing_profile(3, entries, uid, name), timeout=3.0)
+        if scan_data:
+            self._write(protocol.CMD_EAR_SCAN_WRITE, parsing.encode_ear_scan_data(3, uid, scan_data), timeout=3.0)
+        self.set_golden_sound(True)
+        rec = self.read_hearing_record()
+        if rec is None or rec.id != uid or sorted(rec.entries) != sorted(parsing.HearingEntry(*e) for e in entries):
+            raise self._verify_failed("the profile on the buds does not match what was applied")
+        return rec

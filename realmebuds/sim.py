@@ -12,7 +12,7 @@ import socket
 import struct
 import threading
 
-from . import model, protocol
+from . import model, parsing, protocol
 from .parsing import GestureEntry
 from .protocol import Packet
 
@@ -51,7 +51,7 @@ class FakeBuds:
         self.smart_level = model.ANC_MILD
         self.hold_cycle = model.ANC_MAX | model.ANC_TRANSPARENCY
         self.features = {0x04: True, 0x06: False, 0x08: False, 0x09: False, 0x11: True,
-                         0x18: True, 0x1A: False, 0x1B: False, 0x1D: True}
+                         0x18: True, 0x1A: False, 0x1B: False, 0x1D: True, 0x0B: False}
         self.eq = 1
         self.custom_eqs: list[tuple[int, str, tuple[tuple[int, int], ...]]] = []
         self.dynamic = {1: 0, 2: 0, 3: 0}
@@ -61,6 +61,16 @@ class FakeBuds:
             GestureEntry(1, 6, 2, 0x00), GestureEntry(2, 6, 2, 0x00),
         ]
         self.find_ringing = False
+        # Fit test and Golden Sound.
+        self.fit_result = (1, 1)  # raw statuses pushed for left and right
+        self.fit_started = 0
+        self.hearing_record: tuple[tuple[tuple[int, int, int], ...], int, str] | None = None
+        self.scan_data: bytes | None = None
+        self.ear_scan_bytes = bytes(range(168))
+        self.tones: list[tuple[int, int, int]] = []
+        self.tones_stopped = 0
+        self.test_active = False
+        self.registered_events: list[int] = []
 
     # -- plumbing ---------------------------------------------------------
 
@@ -216,11 +226,60 @@ class FakeBuds:
             self._write_custom_eq(pkt)
         elif c == protocol.CMD_SPATIAL_SOURCE:
             self._reply(pkt, ok)
+        elif c == protocol.CMD_REGISTER_EVENT:
+            self.registered_events.append(p[0] if p else -1)
+            self._reply(pkt, ok)
+        elif c == protocol.CMD_FIT_TEST:
+            self._reply(pkt, ok)
+            if p == b"\x01":
+                self.fit_started += 1
+                if self.fit_result is not None:  # None: the buds never push a result
+                    left, right = self.fit_result if self.worn else (4, 4)
+                    threading.Timer(0.1, self.push, [bytes([protocol.EV_FIT_TEST, 1, left, 2, right])]).start()
+            elif p == b"\x00":
+                self.fit_stopped = getattr(self, "fit_stopped", 0) + 1
+        elif c == protocol.CMD_HEARING_RECORD:
+            if self.hearing_record is None:
+                self._reply(pkt, b"\x00\x03\x00\x00\x00\x00\x00")
+            else:
+                entries, uid, name = self.hearing_record
+                self._reply(pkt, b"\x00" + parsing.encode_hearing_profile(3, entries, uid, name))
+        elif c == protocol.CMD_HEARING_DETECT:
+            self._reply(pkt, ok)
+            if p[:2] == b"\x02\x01":
+                self.test_active = True
+            elif p[:2] == b"\x02\x00":
+                self.test_active = False
+            elif p[:2] == b"\x04\x01" and len(p) == 6:
+                body = bytes([protocol.EV_EAR_SCAN, 3]) + len(self.ear_scan_bytes).to_bytes(2, "little") + self.ear_scan_bytes + p[2:6]
+                threading.Timer(0.1, self.push, [body]).start()
+        elif c == protocol.CMD_HEARING_PARAMS:
+            self._write_hearing_params(pkt)
+        elif c == protocol.CMD_RESTORE_DATA:
+            self._reply(pkt, ok)
+        elif c == protocol.CMD_EAR_SCAN_WRITE:
+            if p[:1] == b"\x03":
+                n = int.from_bytes(p[1:3], "little")
+                self.scan_data = bytes(p[3 : 3 + n])
+            self._reply(pkt, ok)
         elif c == protocol.CMD_FIND:
             self.find_ringing = p == b"\x01"
             self._reply(pkt, ok)
         else:
             self._reply(pkt, b"\x01")
+
+    def _write_hearing_params(self, pkt: Packet) -> None:
+        p = pkt.payload
+        self._reply(pkt, b"\x00")
+        if p[:2] == b"\x03\x01" and len(p) == 5:
+            self.tones.append((p[2], p[3], p[4] - 256 if p[4] > 127 else p[4]))
+        elif p[:1] == b"\x04":
+            self.tones_stopped += 1
+        elif p[:1] == b"\x03":
+            n = p[1]
+            entries = tuple((p[2 + 3 * i], p[3 + 3 * i], p[4 + 3 * i] - 256 if p[4 + 3 * i] > 127 else p[4 + 3 * i]) for i in range(n))
+            uid = int.from_bytes(p[2 + 3 * n : 6 + 3 * n], "big")
+            self.hearing_record = (entries, uid, p[6 + 3 * n :].decode())
 
     def _write_anc(self, pkt: Packet) -> None:
         p = pkt.payload

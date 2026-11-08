@@ -209,3 +209,77 @@ def parse_bitmap(payload: bytes) -> set[int]:
             if byte >> b & 1:
                 bits.add(i * 8 + b)
     return bits
+
+
+def parse_fit_test(body: bytes) -> dict[int, int]:
+    """Push body after the event code: ``<side> <status> <side> <status>`` (1 left, 2 right)."""
+    out = {}
+    for i in range(0, len(body) - 1, 2):
+        out[body[i]] = body[i + 1]
+    return out
+
+
+class HearingEntry(NamedTuple):
+    side: int  # 1 left, 2 right
+    band: int  # 1..6
+    db: int
+
+
+class HearingRecord(NamedTuple):
+    entries: tuple[HearingEntry, ...]
+    id: int
+    name: str
+
+
+def parse_hearing_record(payload: bytes) -> HearingRecord | None:
+    """Reply to 0x0115: ``00 <type> <count> (<side> <band> <db s8>)*count <id u32 BE> <name>``."""
+    if len(payload) < 3 or payload[0] != 0:
+        return None
+    count = payload[2]
+    body = payload[3:]
+    if len(body) < 3 * count + 4:
+        return None
+    entries = tuple(HearingEntry(body[3 * i], body[3 * i + 1], s8(body[3 * i + 2])) for i in range(count))
+    uid = int.from_bytes(body[3 * count : 3 * count + 4], "big")
+    name = body[3 * count + 4 :].decode("utf-8", errors="replace")
+    return HearingRecord(entries, uid, name)
+
+
+def encode_hearing_profile(kind: int, entries, uid: int = 0, name: str = "") -> bytes:
+    """Payload of 0x040E types 1 (audition) and 3 (apply): ``<kind> <count> entries <id u32 BE> <name>``."""
+    out = bytearray([kind, len(entries)])
+    for e in entries:
+        out += bytes([e[0], e[1], u8(e[2])])
+    out += int(uid).to_bytes(4, "big")
+    out += name.encode("utf-8")
+    return bytes(out)
+
+
+def encode_tone(side: int, band: int, db: int) -> bytes:
+    """Payload of 0x040E that plays one test tone."""
+    return bytes([3, 1, side, band, u8(db)])
+
+
+def encode_ear_scan_start(action: int, uid: int) -> bytes:
+    """Payload of 0x040D type 4: ``04 <1 start | 0 stop> <id u32 BE>``."""
+    return bytes([4, action]) + int(uid).to_bytes(4, "big")
+
+
+def encode_ear_scan_data(kind: int, uid: int, data: bytes) -> bytes:
+    """Payload of 0x0415: ``<kind> <len u16 LE> <data> <id u32 BE>``."""
+    return bytes([kind]) + len(data).to_bytes(2, "little") + data + int(uid).to_bytes(4, "big")
+
+
+class EarScan(NamedTuple):
+    uid: int
+    data: bytes
+
+
+def parse_ear_scan_event(body: bytes) -> EarScan | None:
+    """Push body after event code 0x0E: ``<action> <len u16 LE> <data> <id u32 BE>``."""
+    if len(body) < 3:
+        return None
+    n = int.from_bytes(body[1:3], "little")
+    if len(body) < 3 + n + 4:
+        return None
+    return EarScan(int.from_bytes(body[3 + n : 7 + n], "big"), bytes(body[3 : 3 + n]))
