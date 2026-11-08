@@ -142,6 +142,10 @@ def broken(**changes):
         (broken(features__0__id=300), "features[0].id"),
         (broken(gestures__options={"3": [0]}), "listed in gestures.actions"),
         (broken(anc__modes__0__evidence="vibes"), "evidence must be one of"),
+        (broken(transport="ble"), "transport: expected an object"),
+        (broken(transport={"preferred": "wifi"}), "transport.preferred: must be one of auto, rfcomm, ble"),
+        (broken(transport={"service_uuid": "079a"}), "transport.service_uuid: expected a UUID"),
+        (broken(transport={"service_uuid": 5}), "transport.service_uuid: expected a UUID"),
     ],
 )
 def test_validation_errors_say_where_the_mistake_is(data, message):
@@ -159,6 +163,21 @@ def test_round_trip_through_json_is_lossless(userdir):
         assert again == p
     fic = profile_from_dict(FICTIONAL)
     assert profile_from_dict(fic.to_dict()) == fic
+
+
+def test_transport_hint_defaults_to_auto_and_round_trips():
+    p = profile_from_dict(FICTIONAL)
+    assert (p.transport_preferred, p.transport_service_uuid) == ("auto", None)
+    assert p.to_dict()["transport"] == {"preferred": "auto", "service_uuid": None}
+    ble = profile_from_dict(broken(transport={"preferred": "ble", "service_uuid": "0000079C-D102-11E1-9B23-00025B00A5A5"}))
+    assert (ble.transport_preferred, ble.transport_service_uuid) == ("ble", "0000079c-d102-11e1-9b23-00025b00a5a5")
+    assert profile_from_dict(json.loads(json.dumps(ble.to_dict()))) == ble
+    assert profile_from_dict(broken(transport={"preferred": "rfcomm", "service_uuid": None})).transport_preferred == "rfcomm"
+
+
+def test_builtin_profile_has_no_transport_preference(userdir):
+    p = profiles.get("realme-buds-air7-pro")
+    assert (p.transport_preferred, p.transport_service_uuid) == ("auto", None)
 
 
 # -- the profile object -------------------------------------------------------

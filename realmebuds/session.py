@@ -11,7 +11,7 @@ from typing import Any, Callable
 from . import profiles
 from .client import Buds, State, Trace
 from .sim import FakeBuds, connected_pair
-from .transport import connect_rfcomm, pick_device
+from .transport import connect, pick_device
 
 
 def connect_buds(
@@ -22,13 +22,27 @@ def connect_buds(
     profile: str | None = None,
     profile_file: str | None = None,
     sim_profile: str | None = None,
+    transport: str = "auto",
+    service_uuid: str | None = None,
 ) -> Buds:
     """Open the link, start the reader and run the init sequence.
 
     ``profile`` forces a profile by key (or ``profile_file`` a JSON file) instead of recognising
     the buds. With ``sim`` the buds are pretend; the simulator is reachable as ``buds.sim``
     and ``sim_profile`` makes it a different model.
+
+    ``transport`` picks the link: ``rfcomm`` (Bluetooth Classic, ``channel`` skips the SDP
+    lookup), ``ble`` (GATT, experimental, ``service_uuid`` overrides the control service) or
+    ``auto``, which tries RFCOMM and falls back to BLE. The product id is only read over the
+    link, so a recognised model cannot choose its own transport; a profile that is forced
+    (``profile`` or ``profile_file``) can, and with ``auto`` its ``transport`` hint is used.
+    ``sim`` ignores all of this.
     """
+    chosen = None
+    if profile_file:
+        chosen = profiles.load_file(Path(profile_file))
+    elif profile:
+        chosen = profiles.get(profile)
     fake: FakeBuds | None = None
     name: str | None = None
     if sim:
@@ -37,14 +51,12 @@ def connect_buds(
             fake.profile = profiles.get(sim_profile)
         name = fake.profile.name
     else:
+        if chosen is not None and transport == "auto":
+            transport = chosen.transport_preferred
+            service_uuid = service_uuid or chosen.transport_service_uuid
         dev = pick_device(addr)
         name = dev.name if dev.name != dev.addr else None
-        sock = connect_rfcomm(dev.addr, channel)
-    chosen = None
-    if profile_file:
-        chosen = profiles.load_file(Path(profile_file))
-    elif profile:
-        chosen = profiles.get(profile)
+        sock = connect(dev.addr, transport, channel, service_uuid)
     buds = Buds(sock, trace=trace, init_delay=0.05 if sim else 0.2, profile=chosen, device_name=name)
     buds.sim = fake  # type: ignore[attr-defined]
     buds.start()

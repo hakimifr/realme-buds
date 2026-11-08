@@ -20,8 +20,11 @@ Control earbuds from your laptop: noise control, spatial audio, game mode, EQ, D
 audio, touch controls and more. No phone, no vendor app, no account. A command line tool
 and a GTK4 app, both on top of the same small library.
 
-Built in: **realme Buds Air7 Pro**. Other OPPO/OnePlus/realme-family buds are added with a
-small JSON file, not code, see [Other earbuds](#other-earbuds).
+Built in: **135 models** of realme, OPPO, OnePlus and DIZO earbuds ([the list](docs/MODELS.md)).
+**Only the realme Buds Air7 Pro has been tried on real buds**, and only partly. The other 134 are
+profiles converted from [QuickBuds](https://github.com/spizganed/QuickBuds)' model data, so treat them as a
+starting point that may or may not work on your buds, not as support. More models are added with a small JSON
+file, not code, see [Other earbuds](#other-earbuds).
 
 > **Read this first.** The code was written on a server with no Bluetooth and tested
 > against a simulator, then fixed against traces from a real Air7 Pro and checked against
@@ -44,6 +47,7 @@ small JSON file, not code, see [Other earbuds](#other-earbuds).
 | Earbud fit test | `fit-test` | yes | payloads and result format confirmed in the app's code, untested on real buds |
 | Golden Sound (ear scan, hearing test, profile on/off) | `golden-sound` | yes | whole flow confirmed in the app's code, untested on real buds |
 | Find my earbuds | `find` | yes | family-level |
+| Bluetooth LE (GATT) link for BLE-only models | `--transport ble` | Advanced | implemented from the app's code, **untested on real hardware**, only a mock of BlueZ was used |
 
 Left out on purpose: MindFlow, AI Translate, firmware updates, and managing several saved Golden Sound
 profiles (the buds only keep the active one, so this tool makes a new one each time).
@@ -57,12 +61,17 @@ See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the wire format and where each fact
 
 A rule of this project: anything the command line can do, bypass or force, the GUI can too.
 The command line's `--force` flags, `--skip-scan`, `--timeout`, `--profile`, `--profile-file`,
-`--addr`, `--channel`, `--trace`, `devices`, `features --scan`, `raw`, `status --json` and
+`--addr`, `--channel`, `--transport`, `--service-uuid`, `--trace`, `devices`, `features --scan`, `raw`, `status --json` and
 `profile detect` all have a control in the GUI's **Advanced** dialog (the gear in the header bar).
 The mapping is in `realmebuds/parity.py`, and a test fails if the command line gains an
 option that has no GUI counterpart.
 
 ## Other earbuds
+
+`docs/MODELS.md` lists every model with a built-in profile and what each profile says the model has. If yours is
+there, just run `realme-buds status`: buds are recognised by product id. If something is wrong for your model,
+correct a copy of its profile (`realme-buds profile show KEY > ~/.config/realme-buds/profiles/KEY.json`, your copy
+replaces the built-in one) and tell me what the buds really do.
 
 Everything that differs between models is data in a *device profile*: the product id, what the
 noise-control numbers mean, which feature switches exist, which functions each gesture accepts,
@@ -79,9 +88,10 @@ realme-buds --profile realme-buds-air7-pro status   # force a profile on buds it
 **Do OPPO and OnePlus buds use the same protocol?** Yes. I compared HeyMelody (the OPPO/OnePlus app) with
 realme Link by decompiling both: same frame format, same service id and same command numbers. It has not been tried
 on any OPPO or OnePlus buds, and each model still needs a profile. The catch is the transport: HeyMelody picks
-Bluetooth Classic or BLE per model, and this project only does Classic (RFCOMM). So models that are BLE-only can
-get a profile but cannot be connected yet. Realme buds on two other chip families are out of reach too. Details and the
-how-to are in [docs/ADDING_A_DEVICE.md](docs/ADDING_A_DEVICE.md).
+Bluetooth Classic or BLE per model. This project does Classic (RFCOMM) and has an **experimental Bluetooth LE (GATT)
+transport that has never been tried on real buds** (written from the decompiled app, tested only against a mock of
+BlueZ), so BLE-only models might now connect. Try `realme-buds --transport ble status`. Realme buds on two other chip
+families are out of reach. Details and the how-to are in [docs/ADDING_A_DEVICE.md](docs/ADDING_A_DEVICE.md).
 
 ## Setup on Fedora
 
@@ -109,7 +119,8 @@ pipx install --system-site-packages .
 install -Dm644 data/realme-buds.desktop ~/.local/share/applications/realme-buds.desktop
 ```
 
-It needs no root and no daemon. It talks to the buds with ordinary Bluetooth sockets.
+It needs no root and no daemon. It talks to the buds with ordinary Bluetooth sockets, or, for the experimental
+Bluetooth LE link, through BlueZ's D-Bus API (PyGObject, already needed for the GUI).
 
 ## Command line
 
@@ -135,7 +146,8 @@ realme-buds profile list                 # device profiles; also: show, validate
 ```
 
 Useful when something misbehaves: `--trace` prints every frame to stderr, `--addr`
-picks a pair explicitly, `--channel N` skips the SDP lookup, `--profile KEY` /
+picks a pair explicitly, `--channel N` skips the SDP lookup, `--transport auto|rfcomm|ble` chooses the link
+(`auto` tries RFCOMM and then the experimental Bluetooth LE one) with `--service-uuid UUID` for the GATT service, `--profile KEY` /
 `--profile-file FILE` choose the device profile instead of recognising the buds.
 
 ## First run checklist on real buds
@@ -174,6 +186,7 @@ If a command fails, rerun it with `--trace` and keep the output.
 ```sh
 python3 -m pytest -q tests                      # protocol, client, CLI, session (no hardware)
 xvfb-run -a python3 -m pytest -q tests/test_gui.py   # GUI against the simulator
+python3 -m pytest -q tests/test_ble.py         # BLE link against a mock BlueZ on a private bus (skipped without dbus-daemon)
 python3 -m realmebuds.gui --sim                 # try the interface with pretend buds
 python3 -m realmebuds --sim status
 ```
@@ -184,13 +197,21 @@ Layout:
 | --- | --- |
 | `protocol.py`, `parsing.py` | framing, replies the buds expect, payload decoders for the `tl` family |
 | `model.py` | what function codes and status bytes mean in the family (not per-model) |
-| `profiles/` | device profiles: schema, loader, `builtin/*.json`, generic fallback, draft builder |
-| `sdp.py`, `transport.py` | finding the RFCOMM channel and opening it (BlueZ) |
+| `profiles/` | device profiles: schema, loader, `builtin/*.json` (135 models), generic fallback, draft builder |
+| `scripts/` | `import_quickbuds.py` makes the built-in profiles, `make_models_doc.py` writes `docs/MODELS.md` |
+| `sdp.py`, `transport.py` | finding the RFCOMM channel and opening it (BlueZ), choosing between RFCOMM and BLE |
+| `ble.py` | experimental BLE GATT link over BlueZ's D-Bus API; looks like a socket to the client |
 | `client.py`, `session.py` | the threaded client with read-back verified writes; an auto-reconnecting session |
-| `sim.py` | pretend buds, can be any profile, used by the tests |
+| `sim.py` | pretend buds, can be any profile, used by the tests (`tests/fake_bluez.py` serves them as a fake BlueZ over GATT) |
 | `cli.py` | the command line |
 | `gui.py`, `gui_advanced.py`, `gui_dialogs.py`, `gui_eq.py` | the GTK app and its dialogs |
 | `parity.py` | the CLI-to-GUI mapping that tests enforce |
+
+## License
+
+GPL-3.0-or-later, see [LICENSE](LICENSE). The built-in profiles are generated from the model data of QuickBuds
+(GPL-3.0-or-later), which is why this project is GPL too, see [NOTICE.md](NOTICE.md). Regenerate them with
+`python3 scripts/import_quickbuds.py PATH/TO/QuickBuds/app/src/main/assets/models.json`.
 
 ## Credits
 

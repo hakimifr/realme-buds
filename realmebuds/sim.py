@@ -84,7 +84,7 @@ class FakeBuds:
         if prof.key != profiles.DEFAULT_KEY:
             self.features = {f.id: False for f in prof.features}
             first = next((m for m in prof.anc_modes if m.group is None), None)
-            self.anc = first.report if first else 0
+            self.anc = first.reports[-1] if first else 0
             self.hold_cycle = sum(o.bit for o in prof.hold_options[:2]) or 1
 
     def _product_id_bytes(self) -> bytes:
@@ -311,9 +311,11 @@ class FakeBuds:
             if mode is None:
                 self._reply(pkt, b"\x01")
                 return
-            self.anc = mode.report  # models report a different number than they are written
+            # models report a different number than they are written; the last listed one is used so that
+            # a profile with several accepted values exercises the "any of them" check
+            self.anc = mode.reports[-1]
             self._reply(pkt, b"\x00")
-            self.push(b"\x03\x01\x01" + protocol.mask_to_bytes(mode.report))
+            self.push(b"\x03\x01\x01" + protocol.mask_to_bytes(mode.reports[-1]))
         elif p[:2] == b"\x02\x01":
             self.hold_cycle = int.from_bytes(p[2:], "little")
             self._reply(pkt, b"\x00")

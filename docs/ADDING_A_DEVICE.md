@@ -35,14 +35,19 @@ still have to be found per model (see below).
 **What does not carry over.** Two things in HeyMelody mean not every model is reachable:
 
 1. **The transport is chosen per model.** Each model's config has an `isSupportSpp` flag and a service `uuid`.
-   Some models use Bluetooth Classic RFCOMM (what this project does). Others use **BLE GATT** (HeyMelody has a
-   `GattDevice` class using services `0000079A-…`, `0100079A-…`, `0200079A-…`) and some are LE-only. Same frames, different
-   pipe. This project has no GATT transport yet, so BLE-only models can be profiled but not connected to.
+   Some models use Bluetooth Classic RFCOMM. Others use **BLE GATT** (HeyMelody has a `GattDevice` class using services
+   `0000079A-…`, `0100079A-…`, `0200079A-…`) and some are LE-only. Same frames, different pipe. This project has both
+   now: RFCOMM, and an **experimental BLE GATT transport that has never been tried on real buds** (see "BLE GATT
+   transport" in [PROTOCOL.md](PROTOCOL.md) for what was derived and what is a guess). `--transport auto` (the default) tries
+   RFCOMM first and falls back to BLE, `--transport rfcomm` or `--transport ble` force one, and `--service-uuid`
+   changes the GATT service for a model whose config uses another one. The GUI has the same two settings in Advanced.
 2. **The model list is not readable.** HeyMelody ships its model data encrypted (`res/raw/heymelody_app_whitelist.json`)
    and fetches the rest from the cloud, so I could not read which models use which transport. I did not try to decrypt it.
 
 How to tell for your buds: `realme-buds devices` shows a `realme control service` flag when the buds advertise the
-RFCOMM service. If they do not, and HeyMelody reaches them anyway, they are probably BLE-only.
+RFCOMM service. If they do not, and HeyMelody reaches them anyway, they are probably BLE-only: try
+`realme-buds --transport ble --trace status` and send the output, whether it works or not. For the GATT link BlueZ must know the buds
+(pair them first) and the buds must not be connected to a phone at the same time.
 
 In realme Link the picture is different: it holds three implementations and picks one per model from the cloud config
 (`sdkVendor`: `VENDOR_TL`, `VENDOR_WM`, `VENDOR_LD`). `TL` is this protocol. `WM` is plain SPP with its own commands and
@@ -51,9 +56,21 @@ In realme Link the picture is different: it holds three implementations and pick
 | Family | Transport | Supported here |
 | --- | --- | --- |
 | `tl` over RFCOMM | `0000079A-…` | yes |
-| `tl` over BLE GATT (OPPO, OnePlus, newer realme) | `0000079A-…` / `0100079A-…` / `0200079A-…` | no, not yet |
+| `tl` over BLE GATT (OPPO, OnePlus, newer realme) | `0000079A-…` / `0100079A-…` / `0200079A-…` | implemented, experimental, untested on real buds |
 | realme `wm` | `00001101-…` (SPP) | no |
 | realme `ld` | Airoha SDK | no |
+
+## Check the built-in list first
+
+[MODELS.md](MODELS.md) lists the 135 models that already have a profile. Most new buds are a close sibling of one of
+them, so the fastest start is to copy that profile and change what differs:
+
+```sh
+realme-buds profile show oneplus-buds-4 > mine.json     # then edit key, name and match.product_ids
+```
+
+Those profiles were converted from QuickBuds' data and none has been verified on real buds, so even for a listed model
+a correction from someone who owns it is valuable.
 
 ## Quick path
 
@@ -147,7 +164,8 @@ many modes the vendor app insists on.
     "custom": { "freqs": [62, 250, 1000, 4000, 8000, 16000], "gain": [-6, 6], "max": 3 }
   },
   "dynamic_audio": { "bands": { "1": "Low", "2": "Mid", "3": "High" }, "range": [-5, 5] },
-  "capabilities": { "fit_test": false, "golden_sound": false }
+  "capabilities": { "fit_test": false, "golden_sound": false },
+  "transport": { "preferred": "auto", "service_uuid": null }
 }
 ```
 
@@ -157,6 +175,7 @@ many modes the vendor app insists on.
 | `match.product_ids` | six hex digits, from `status` ("product id"). Preferred way to be recognised |
 | `match.names` | exact Bluetooth names, a fallback |
 | `family` | only `tl` is supported by this build |
+| `transport` | optional: `{"preferred": "auto" \| "rfcomm" \| "ble", "service_uuid": "<uuid>" \| null}`, default `auto` and `null`. A hint used when this profile is forced with `--profile` or `--profile-file`, because a recognised model is only known after the link is open |
 | `anc.modes[].evidence` | `app`, `reported`, `family` or `guess`; default `family` |
 | `anc.buttons` | order of the top-level buttons; each is a mode key or a group key |
 | `features[].key` | `golden-sound` and `dynamic-audio` are reserved for the dedicated screens |
@@ -175,7 +194,7 @@ without checking their license.
 
 A profile only covers a family the library can already speak. For another family you would add:
 
-1. A transport (RFCOMM channel lookup for SPP, or GATT for BLE) next to `transport.py`.
+1. A transport next to `transport.py` and `ble.py` if it needs a pipe they do not provide (RFCOMM for SPP and GATT for BLE already exist).
 2. A framing and command layer like `protocol.py`/`parsing.py`/`client.py`, exposing the same high-level `Buds` methods
    that the CLI and GUI call (`set_anc_mode`, `set_feature`, `read_battery`, …).
 3. The family's name in `profiles.schema.KNOWN_FAMILIES`, and a dispatch in `session.connect_buds`.

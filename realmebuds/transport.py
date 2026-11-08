@@ -1,4 +1,4 @@
-"""Finding the buds and opening the RFCOMM control channel (BlueZ on Linux)."""
+"""Finding the buds and opening the control link, over RFCOMM or Bluetooth LE (BlueZ on Linux)."""
 
 from __future__ import annotations
 
@@ -120,3 +120,45 @@ def connect_rfcomm(addr: str, channel: int | None = None, timeout: float = 8.0) 
         sock.close()
         raise TransportError(f"RFCOMM connect to {addr} channel {ch} failed: {e}") from e
     return sock
+
+
+TRANSPORTS = ("auto", "rfcomm", "ble")
+
+
+def connect(
+    addr: str,
+    transport: str = "auto",
+    channel: int | None = None,
+    service_uuid: str | None = None,
+    timeout: float = 8.0,
+):
+    """Open the control link and return a socket-like object (``Buds`` only needs a few methods).
+
+    ``rfcomm`` and ``ble`` force one transport. ``auto`` tries RFCOMM first (the SDP lookup says
+    whether the buds have the service) and falls back to Bluetooth LE GATT if that cannot be done,
+    reporting both reasons when neither works. ``channel`` only matters for RFCOMM and
+    ``service_uuid`` only for BLE.
+    """
+    if transport not in TRANSPORTS:
+        raise TransportError(f"unknown transport {transport!r}; use one of: {', '.join(TRANSPORTS)}")
+    if transport == "rfcomm":
+        return connect_rfcomm(addr, channel, timeout)
+    if transport == "ble":
+        return _connect_ble(addr, service_uuid)
+    try:
+        return connect_rfcomm(addr, channel, timeout)
+    except TransportError as rfcomm_error:
+        try:
+            return _connect_ble(addr, service_uuid)
+        except TransportError as ble_error:
+            raise TransportError(
+                f"could not open the control link to {addr} either way.\n"
+                f"  RFCOMM (Bluetooth Classic): {rfcomm_error}\n"
+                f"  Bluetooth LE GATT (experimental): {ble_error}"
+            ) from ble_error
+
+
+def _connect_ble(addr: str, service_uuid: str | None):
+    from .ble import connect_ble  # imported late: it needs PyGObject, RFCOMM does not
+
+    return connect_ble(addr, service_uuid)

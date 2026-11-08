@@ -203,7 +203,7 @@ def test_hearing_test_wizard_end_to_end(win):
     dlg.start()
     assert pump(lambda: dlg.stack.get_visible_child_name() == "test")
     assert sim(win).test_active and dlg.scan is not None and dlg.scan.data == sim(win).ear_scan_bytes
-    assert sim(win).tones[-1] == (1, 1, model.HEARING_START_DB)  # starts quiet
+    assert pump(lambda: sim(win).tones and sim(win).tones[-1] == (1, 1, model.HEARING_START_DB))  # starts quiet
 
     # moving the slider plays the new level after a short pause
     dlg.scale.set_value(stops.index(-35))
@@ -454,6 +454,38 @@ def test_advanced_device_list_and_address(win):
     adv.dialog.close()
 
 
+def test_advanced_transport_rows_are_passed_to_the_connector(win, monkeypatch):
+    import realmebuds.gui as gui
+    from realmebuds.transport import TRANSPORTS
+
+    calls = []
+    real = gui.connect_buds
+    monkeypatch.setattr(gui, "connect_buds", lambda *a, **kw: calls.append(kw) or real(*a, **kw))
+    adv = AdvancedDialog(win)
+    adv.present()
+    assert TRANSPORTS[adv.transport_row.get_selected()] == "auto" and adv.service_uuid_row.get_text() == ""
+    assert win.overrides.transport == "auto" and win.overrides.service_uuid is None
+
+    old = win.session.buds
+    uuid = "0000079c-d102-11e1-9b23-00025b00a5a5"
+    adv.transport_row.set_selected(TRANSPORTS.index("ble"))
+    adv.service_uuid_row.set_text(f"  {uuid} ")
+    assert win.overrides.transport == "auto"  # applied on "Apply and reconnect", like the address
+    adv.apply_device()
+    assert (win.overrides.transport, win.overrides.service_uuid) == ("ble", uuid)
+    assert pump(lambda: win.session.buds is not None and win.session.buds is not old and win.stack.get_visible_child_name() == "main", timeout=12)
+    assert calls and calls[-1]["transport"] == "ble" and calls[-1]["service_uuid"] == uuid
+
+    adv.transport_row.set_selected(TRANSPORTS.index("auto"))
+    adv.service_uuid_row.set_text("")
+    old = win.session.buds
+    adv.apply_device()
+    assert (win.overrides.transport, win.overrides.service_uuid) == ("auto", None)
+    assert pump(lambda: win.session.buds is not None and win.session.buds is not old and win.stack.get_visible_child_name() == "main", timeout=12)
+    assert calls[-1]["transport"] == "auto" and calls[-1]["service_uuid"] is None
+    adv.dialog.close()
+
+
 # -- custom equaliser ---------------------------------------------------------------------------
 
 
@@ -494,6 +526,66 @@ def test_empty_custom_eq_name_is_refused(win):
     dlg.save()
     pump(lambda: False, 0.4)
     assert len(sim(win).custom_eqs) == before
+
+
+# -- bundled models in the window ---------------------------------------------------------------
+
+
+def test_a_both_buds_hold_model_gets_one_shared_hold_row(win):
+    from realmebuds.sim import GestureEntry
+
+    reconnect(win, sim_profile="realme-buds-air-3s")
+    assert win.current_profile.hold_both and win.current_profile.key == "realme-buds-air-3s"
+    sim(win).gestures = [GestureEntry(1, 1, 2, 0x01), GestureEntry(2, 1, 2, 0x01), GestureEntry(4, 1, 4, 0x11)]
+    win.session.submit(lambda b: b.read_gestures())
+    assert pump(lambda: (4, 4) in win.gesture_rows and win.gesture_rows[(4, 4)].get_visible())
+    assert (1, 4) not in win.gesture_rows and (2, 4) not in win.gesture_rows  # no per-bud hold rows
+    assert win.gesture_rows[(4, 4)].get_title() == "Both buds: touch and hold"
+    codes = win._gesture_fns[(4, 4)]
+    win.gesture_rows[(4, 4)].set_selected(codes.index(0x00))
+    assert pump(lambda: next(e for e in sim(win).gestures if e.dev == 4).fn == 0x00)
+    reconnect(win)
+
+
+def test_a_single_button_model_has_no_right_bud_rows(win):
+    reconnect(win, sim_profile="realme-buds-wireless-6")
+    prof = win.current_profile
+    assert prof.gesture_sides == (1,)
+    assert all(side != model.SIDE_RIGHT for side, _ in win.gesture_rows)
+    win.overrides.force_gestures = True
+    win.overrides_changed()
+    assert any(side == model.SIDE_RIGHT for side, _ in win.gesture_rows)  # the override opens it up
+    reset(win)
+    reconnect(win)
+
+
+def test_a_model_without_noise_control_hides_that_section(win):
+    reconnect(win, sim_profile="dizo-gopods")
+    assert win.current_profile.key == "dizo-gopods" and not win.current_profile.has_anc
+    assert win.anc_buttons == {} and win.level_rows == {} and win.cycle_row is None  # no mode buttons, no cycle
+    # the group stays only if a switch of that group (such as Enhance voices) is reported
+    assert win.noise_group.get_visible() == any(f.group == "noise" and f.id in win.state.features for f in win.current_profile.features)
+    reconnect(win)
+
+
+def test_a_model_with_ten_eq_bands_gets_ten_sliders(win):
+    reconnect(win, sim_profile="oneplus-flow-buds")
+    dlg = CustomEqDialog(win)
+    assert len(dlg.scales) == 10 and list(dlg.scales)[0] == win.current_profile.custom_eq.freqs[0]
+    reconnect(win)
+
+
+def test_the_fit_test_row_follows_the_buds_capability_list(win):
+    assert win.fit_row is not None and win.fit_row.get_visible()  # the Air7 Pro lists it
+    # a buds whose capability list lacks the fit-test bit (9): the row goes away
+    win.session.buds.state.capabilities = win.session.buds.state.capabilities - {9}
+    win.refresh_ui()
+    assert not win.fit_row.get_visible()
+    win.overrides.force_capabilities = True
+    win.overrides_changed()
+    assert win.fit_row.get_visible()
+    reset(win)
+    reconnect(win)
 
 
 def test_refused_write_puts_the_widgets_back(win):

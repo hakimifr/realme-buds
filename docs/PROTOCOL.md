@@ -62,7 +62,8 @@ therefore sends, waits briefly, and confirms by reading the value back.
 
 ## Transport
 
-Classic Bluetooth RFCOMM. The channel number is not fixed, so look it up over SDP
+Classic Bluetooth RFCOMM (the Air7 Pro, the only transport that has been tried on real buds; models that
+only speak Bluetooth LE are covered under "BLE GATT transport" below). The channel number is not fixed, so look it up over SDP
 (L2CAP PSM 1, one ServiceSearchAttributeRequest for attribute `0x0004`) for service
 UUID `0000079a-d102-11e1-9b23-00025b00a5a5`, then connect a plain RFCOMM socket to it.
 No pairing step beyond what the OS already did, no authentication, no encryption.
@@ -262,6 +263,76 @@ control/fragment byte, `00`), same service `0000079A-D102-11E1-9B23-00025B00A5A5
 data, 1050 codec, 1058 spatial type). The difference is the transport: each model's config has `isSupportSpp` and a
 `uuid`, and HeyMelody has a BLE `GattDevice` (services `0000079A-`, `0100079A-`, `0200079A-D102-11E1-9B23-00025B00A5A5`,
 Client Characteristic Configuration `00002902-…`) and an LE-only mode. Its model list is encrypted and was not read.
+How that BLE link works is in the next section.
+
+## BLE GATT transport (experimental, never tried on real buds)
+
+Models that have no RFCOMM service (some OPPO, OnePlus and newer realme buds) can only be reached over
+Bluetooth LE. The frames are exactly the ones above, only the pipe differs. `realmebuds/ble.py` implements it on
+BlueZ's D-Bus API, `--transport ble` forces it and `--transport auto` (the default) falls back to it when RFCOMM
+cannot be used. **No real buds were available. The only test is a mock of BlueZ (`tests/fake_bluez.py`) that
+follows BlueZ's documented behaviour, so it shows our code is consistent with that API and not that any buds
+behave this way.**
+
+### What was derived from the decompiled HeyMelody 117006006
+
+Classes `p156y8.i` (`GattDevice`), `p156y8.f` (`GattConnection`), `p156y8.j` (`GattWriteCommand`), the lambdas that
+`f` posts (`T7.d` case 3 for service discovery, `M9.k` case 20 for notifications, `com.oplus.melody.model.repository.hearingenhance.i`
+case 21 for the descriptor write) and `G8.b` (`OPOv1Wrapper`):
+
+- **Connect.** `BluetoothDevice.connectGatt(context, autoConnect=false, callback, TRANSPORT_LE)`, then `discoverServices()`
+  once connected.
+- **Write.** Frames are written to characteristic `0100079A-D102-11E1-9B23-00025B00A5A5` in the service `z`. `z` is the
+  `uuid` of the model's config entry (`SupportDeviceConfig.getUuid()`) and `0000079A-D102-11E1-9B23-00025B00A5A5` when
+  that is empty. The write type is set with `setWriteType(2)`, which is Android's `WRITE_TYPE_DEFAULT`, a write **with**
+  response (ATT Write Request). It is not write-without-response (that is `1`), which differs from the public notes.
+  Writes are serialised: the next one starts only after `onCharacteristicWrite`, with a 3 second guard timer, and they
+  are queued until notifications are enabled. HeyMelody hands the whole frame to `writeCharacteristic` and never splits it
+  itself, so a frame longer than the ATT payload goes out as an ATT long write.
+- **Notify.** After service discovery it enables notifications on characteristic `0200079A-D102-11E1-9B23-00025B00A5A5`
+  in the **default** service `0000079A-…` (this one does not use `z`): `setCharacteristicNotification(true)` and then writes
+  `ENABLE_NOTIFICATION_VALUE` (`01 00`, notifications, not indications) to the Client Characteristic Configuration
+  descriptor `00002902-0000-1000-8000-00805f9b34fb` 100 ms later. If that is not confirmed within 3 seconds it retries
+  up to three times and then closes the connection.
+- **Receive.** `onCharacteristicChanged` reads the service and characteristic UUIDs and then ignores them: every
+  notification's bytes go to the same frame parser. Notifications are reassembled by frame length (`OPOv1Wrapper.spliceMTUPackage`:
+  `AA`, LEB128 length, collect until complete, split when one notification holds several frames, drop and resync on a
+  bad one). `protocol.Framer` already reassembles a byte stream, so raw notification bytes are fed to it.
+- **MTU.** HeyMelody's GATT code never calls `requestMtu`, and its `onMtuChanged` only logs. Nothing in it needs a particular MTU.
+- **Unrelated constants.** `0000079c-D102-…` and `0100079c-D102-…` appear only in `AutoBTBondTask` (`M9.m`), an
+  account-key bonding task that uses other `b00d02af-…` characteristics, so they are not evidence for the control channel.
+  `GattDevice` also keeps a second connection to a "sub device" address (the other bud of some models); this project does not.
+
+### What `ble.py` does with that
+
+1. Finds the device by address in BlueZ's ObjectManager, calls `Device1.Connect()` if it is not connected and waits for
+   `ServicesResolved`.
+2. Finds service `z` (`--service-uuid`, default `0000079a-…`). Not found means the buds are probably Classic-only or use another UUID, and the
+   error says so and lists the services BlueZ saw.
+3. Write characteristic: `0100079a-…` in `z`. `WriteValue` with type `request` when the characteristic has the `write` flag (as
+   HeyMelody does), `command` only if it has just `write-without-response`.
+4. Notify characteristics: `0200079a-…` in the default service and, if `z` differs, in `z` too. If neither exists, any
+   characteristic of `z` with a `notify` or `indicate` flag. `StartNotify` on each and `PropertiesChanged(Value)` signals
+   carry the data. BlueZ writes the CCCD itself. With one notifying characteristic its raw bytes go straight to the client's
+   `Framer`. With several, each gets its own `Framer` so that frames split across notifications cannot be glued to
+   another characteristic's bytes, and whole frames are passed on.
+5. Outgoing frames are cut into consecutive writes of the ATT payload size: the characteristic's `MTU` property minus 3 when
+   BlueZ exposes it (BlueZ 5.62 and later, only for some characteristics), otherwise 20.
+6. `Connected = false` on the device, or the device object disappearing, closes the socket (`recv` returns `b""`).
+   `close()` stops the notifications and disconnects the device only when this code was the one that connected it.
+
+### Guesses (not derived, not tested on real buds)
+
+- Splitting writes ourselves is a guess. HeyMelody sends one long write, which the firmware sees as a single value. If the firmware
+  only reassembles frames from a single ATT value, split writes will not work and the fix would be to pass the whole frame to
+  `WriteValue` with type `request` (BlueZ then does the long write). Frames of 20 bytes or less are not affected.
+- That BlueZ's `Connect()` on a dual-mode device opens the LE bearer and resolves the GATT services of the same service. Some
+  buds may need pairing first, or need `bluetoothctl connect` to be done by hand.
+- That BlueZ keeps `StartNotify` working across the `ServicesResolved` cycle and emits `PropertiesChanged` for two equal
+  notifications in a row. Both are how BlueZ is documented, nothing here has seen them.
+- The `0000079c-…` variant is not handled specially. Try it with `--service-uuid` if a model needs it.
+- The profile field `transport` (`preferred`, `service_uuid`) is a hint that is only used when a profile is forced
+  (`--profile`, `--profile-file`), because the profile of recognised buds is only known after the link is up.
 
 ## Not implemented on purpose
 

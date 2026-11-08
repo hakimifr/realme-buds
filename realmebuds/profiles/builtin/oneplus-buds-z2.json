@@ -1,0 +1,176 @@
+{
+ "schema": 1,
+ "key": "oneplus-buds-z2",
+ "name": "OnePlus Buds Z2",
+ "vendor": "oneplus",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "061014"
+  ],
+  "names": [
+   "OnePlus Buds Z2"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "anc": {
+  "modes": [
+   {
+    "key": "off",
+    "label": "Off",
+    "set": 1,
+    "evidence": "family",
+    "report": 1
+   },
+   {
+    "key": "transparency",
+    "label": "Transparency",
+    "set": 2,
+    "evidence": "family",
+    "report": 2
+   },
+   {
+    "key": "mild",
+    "label": "Mild",
+    "set": 4,
+    "evidence": "family",
+    "report": 4,
+    "group": "nc"
+   },
+   {
+    "key": "max",
+    "label": "Max",
+    "set": 8,
+    "evidence": "family",
+    "report": 8,
+    "group": "nc"
+   }
+  ],
+  "groups": [
+   {
+    "key": "nc",
+    "label": "Noise cancellation",
+    "default": "mild",
+    "generic": []
+   }
+  ],
+  "buttons": [
+   "max",
+   "mild",
+   "off",
+   "transparency"
+  ],
+  "hold_cycle": {
+   "options": [
+    {
+     "key": "off",
+     "label": "Off",
+     "bit": 1
+    },
+    {
+     "key": "transparency",
+     "label": "Transparency",
+     "bit": 2
+    }
+   ],
+   "min": 2
+  }
+ },
+ "features": [
+  {
+   "key": "wear-detect",
+   "id": 4,
+   "label": "Auto play/pause",
+   "note": "Pause when a bud is taken out, resume when it is back",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "options": {
+   "1": [
+    0,
+    1,
+    5,
+    6
+   ],
+   "2": [
+    0,
+    1,
+    3,
+    5,
+    6
+   ],
+   "3": [
+    0,
+    1,
+    3,
+    5,
+    6
+   ],
+   "4": [
+    8
+   ],
+   "6": [
+    0,
+    13
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Balanced",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Bass",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Clear Vocals",
+    "evidence": "family"
+   },
+   {
+    "id": 3,
+    "label": "Bold",
+    "evidence": "family"
+   }
+  ],
+  "custom": {
+   "freqs": [
+    62,
+    250,
+    1000,
+    4000,
+    8000,
+    16000
+   ],
+   "gain": [
+    -6,
+    6
+   ],
+   "max": 3
+  }
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'."
+}

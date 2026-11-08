@@ -18,12 +18,13 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from . import model, profiles  # noqa: E402
+from . import model, profiles, protocol  # noqa: E402
 from .client import Buds, State  # noqa: E402
 from .gui_advanced import AdvancedDialog  # noqa: E402
 from .gui_dialogs import FitTestDialog, HearingTestDialog  # noqa: E402
 from .gui_eq import CustomEqDialog, band_label  # noqa: E402
 from .session import Session, connect_buds  # noqa: E402
+from .transport import TRANSPORTS  # noqa: E402
 
 APP_ID = "dev.realmebuds.Controller"
 GOLDEN_SOUND_DEFAULT_ID = 0x0B
@@ -43,6 +44,8 @@ class Overrides:
     profile_file: str | None = None  # --profile-file
     address: str | None = None  # --addr
     channel: int | None = None  # --channel
+    transport: str = "auto"  # --transport
+    service_uuid: str | None = None  # --service-uuid
 
 
 class BudsWindow(Adw.ApplicationWindow):
@@ -108,7 +111,10 @@ class BudsWindow(Adw.ApplicationWindow):
 
     def _default_connector(self) -> Buds:
         ov = self.overrides
-        return connect_buds(ov.address, ov.channel, self._sim, self._record_trace, profile=ov.profile, profile_file=ov.profile_file, sim_profile=self.sim_profile)
+        return connect_buds(
+            ov.address, ov.channel, self._sim, self._record_trace, profile=ov.profile, profile_file=ov.profile_file,
+            sim_profile=self.sim_profile, transport=ov.transport, service_uuid=ov.service_uuid,
+        )
 
     def _record_trace(self, direction: str, data: bytes) -> None:
         line = f"{time.strftime('%H:%M:%S')} {direction} {data.hex(' ').upper()}"
@@ -118,7 +124,7 @@ class BudsWindow(Adw.ApplicationWindow):
             GLib.idle_add(adv.append_trace, line)
 
     def apply_connection_overrides(self) -> None:
-        """Profile, address and channel overrides are used when connecting, so connect again."""
+        """Profile, address, channel and transport overrides are used when connecting, so connect again."""
         self.status_page.set_title("Reconnecting…")
         self.session.reconnect()
 
@@ -534,13 +540,13 @@ class BudsWindow(Adw.ApplicationWindow):
     def _build_touch(self, prof: profiles.DeviceProfile) -> None:
         ov = self.overrides
         actions = sorted(model.ACTION_LABELS) if ov.force_gestures else list(prof.gesture_actions)
-        sides = [model.SIDE_LEFT, model.SIDE_RIGHT]
-        side_names = {model.SIDE_LEFT: "Left", model.SIDE_RIGHT: "Right"}
+        sides = [model.SIDE_LEFT, model.SIDE_RIGHT, model.SIDE_BOTH]
+        side_names = {model.SIDE_LEFT: "Left bud", model.SIDE_RIGHT: "Right bud", model.SIDE_BOTH: "Both buds"}
         for side in sides:
-            if side not in prof.gesture_sides and not ov.force_gestures:
-                continue
             for act in actions:
-                row = Adw.ComboRow(title=f"{side_names[side]} bud: {model.ACTION_LABELS[act].lower()}")
+                if not ov.force_gestures and not self._gesture_listed(prof, side, act):
+                    continue
+                row = Adw.ComboRow(title=f"{side_names[side]}: {model.ACTION_LABELS[act].lower()}")
                 row.connect("notify::selected", self._on_gesture_selected, side, act)
                 self._own(self.touch_group, row)
                 self.gesture_rows[(side, act)] = row
@@ -552,6 +558,13 @@ class BudsWindow(Adw.ApplicationWindow):
                 self.cycle_row.add_row(sw)
                 self.cycle_switches[opt.bit] = sw
             self._own(self.touch_group, self.cycle_row)
+
+    @staticmethod
+    def _gesture_listed(prof: profiles.DeviceProfile, side: int, act: int) -> bool:
+        """Whether the profile offers this gesture on this side (the "both buds" hold is its own case)."""
+        if act == 4 and prof.hold_both:
+            return side == model.SIDE_BOTH
+        return side in prof.gesture_sides and side in (model.SIDE_LEFT, model.SIDE_RIGHT)
 
     def _refresh_touch(self, st: State) -> None:
         prof = self._profile
@@ -670,6 +683,9 @@ class BudsWindow(Adw.ApplicationWindow):
             self._refresh_golden(st)
             self._refresh_touch(st)
             self.firmware_label.set_subtitle(f"{st.firmware or '–'}  ·  product id {st.product_id or '–'}")
+            buds = self.session.buds
+            if self.fit_row is not None and buds is not None and not self.overrides.force_capabilities:
+                self.fit_row.set_visible(buds.supports(protocol.CMD_FIT_TEST))  # the buds' own capability list
             self.noise_group.set_visible(bool(self.anc_buttons) or any(f.group == "noise" for f in self._feature_defs.values()))
             self.sound_group.set_visible(self.eq_row is not None or any(f.group == "sound" for f in self._feature_defs.values()))
             self.touch_group.set_visible(bool(self.gesture_rows) or self.cycle_row is not None)
@@ -725,11 +741,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="realme-buds-gui", description="GTK front end for OPPO/realme-family earbuds")
     ap.add_argument("--addr", help="Bluetooth address of the buds")
     ap.add_argument("--channel", type=int, help="RFCOMM channel (default: look it up over SDP)")
+    ap.add_argument("--transport", choices=TRANSPORTS, default="auto", help="auto (RFCOMM, then Bluetooth LE), rfcomm, or ble (experimental)")
+    ap.add_argument("--service-uuid", metavar="UUID", help="GATT service of the control channel for --transport ble")
     ap.add_argument("--profile", metavar="KEY", help="use this device profile instead of recognising the buds")
     ap.add_argument("--profile-file", metavar="FILE", help="use the profile in this JSON file")
     ap.add_argument("--sim", action="store_true", help="use pretend buds, to try the interface")
     args = ap.parse_args(argv)
-    ov = Overrides(profile=args.profile, profile_file=args.profile_file, address=args.addr, channel=args.channel)
+    ov = Overrides(profile=args.profile, profile_file=args.profile_file, address=args.addr, channel=args.channel,
+                   transport=args.transport, service_uuid=args.service_uuid)
     return BudsApp(overrides=ov, sim=args.sim).run([sys.argv[0]])
 
 

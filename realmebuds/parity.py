@@ -29,6 +29,8 @@ PARITY: tuple[Parity, ...] = (
     # global options
     Parity("--addr", "advanced.address_row"),
     Parity("--channel", "advanced.channel_row"),
+    Parity("--transport", "advanced.transport_row"),
+    Parity("--service-uuid", "advanced.service_uuid_row"),
     Parity("--trace", "advanced.trace_view"),
     Parity("--profile", "advanced.profile_row"),
     Parity("--profile-file", "advanced.profile_file_button"),

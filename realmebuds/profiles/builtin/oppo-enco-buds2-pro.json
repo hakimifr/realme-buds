@@ -1,0 +1,88 @@
+{
+ "schema": 1,
+ "key": "oppo-enco-buds2-pro",
+ "name": "OPPO Enco Buds2 Pro",
+ "vendor": "oppo",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "068010"
+  ],
+  "names": [
+   "OPPO Enco Buds2 Pro"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "features": [
+  {
+   "key": "game-mode",
+   "id": 6,
+   "label": "Game mode",
+   "note": "Low-latency audio",
+   "group": "mode",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   1,
+   2,
+   3,
+   6
+  ],
+  "options": {
+   "1": [
+    0,
+    1
+   ],
+   "2": [
+    0,
+    1,
+    17,
+    3,
+    5,
+    6
+   ],
+   "3": [
+    0,
+    17,
+    3,
+    5,
+    6
+   ],
+   "6": [
+    0,
+    13
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Balanced",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Bold",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Bass",
+    "evidence": "family"
+   }
+  ]
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'. HeyMelody lists this model without noise-control modes, so none are offered."
+}

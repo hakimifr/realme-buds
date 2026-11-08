@@ -7,6 +7,8 @@ name = "realme-buds"
 version = "0.1.0"
 description = "Control OPPO/OnePlus/realme-family earbuds (built in: realme Buds Air7 Pro) from a Linux computer over Bluetooth, no phone app needed"
 requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE.md"]
 dependencies = []
 
 [project.optional-dependencies]
