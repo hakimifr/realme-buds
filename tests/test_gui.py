@@ -1,5 +1,6 @@
 """Drives the real GTK widgets against the simulator. Needs a display: run with xvfb-run."""
 
+import json
 import os
 import time
 
@@ -21,7 +22,11 @@ if not Gtk.init_check():
 
 from realmebuds import model  # noqa: E402
 from realmebuds.gui import BudsApp  # noqa: E402
+from realmebuds.gui_advanced import AdvancedDialog  # noqa: E402
 from realmebuds.gui_dialogs import FitTestDialog, HearingTestDialog  # noqa: E402
+from realmebuds.gui_eq import CustomEqDialog  # noqa: E402
+from realmebuds import profiles  # noqa: E402
+from realmebuds.transport import Device  # noqa: E402
 from realmebuds.session import connect_buds  # noqa: E402
 
 
@@ -40,8 +45,15 @@ def pump(cond, timeout=6.0):
 
 
 @pytest.fixture(scope="module")
-def win():
-    app = BudsApp(lambda: connect_buds(sim=True))
+def win(tmp_path_factory):
+    import json
+
+    from tests.test_profiles import FICTIONAL
+
+    profile_dir = tmp_path_factory.mktemp("profiles")
+    (profile_dir / "x.json").write_text(json.dumps(FICTIONAL))
+    os.environ["REALME_BUDS_PROFILE_DIR"] = str(profile_dir)
+    app = BudsApp(sim=True)
     app.register(None)
     app.activate()
     window = app.window
@@ -49,6 +61,7 @@ def win():
     window.set_default_size(520, 1500)
     yield window
     window.session.stop()
+    os.environ.pop("REALME_BUDS_PROFILE_DIR", None)
 
 
 def sim(win):
@@ -76,7 +89,8 @@ def test_initial_state_is_shown(win):
     assert not win.battery_rows[3][0].get_visible()  # case level unknown while the lid is closed
     assert win.anc_buttons["transparency"].get_active()
     assert win.feature_rows["game-mode"].get_visible() and not win.feature_rows["game-mode"].get_active()
-    assert win.firmware_label.get_subtitle() == "138.138.105"
+    assert win.firmware_label.get_subtitle().startswith("138.138.105") and "064C12" in win.firmware_label.get_subtitle()
+    assert "realme Buds Air7 Pro" in win.model_label.get_subtitle()
     assert win.eq_row.get_selected() == 1  # Deep Bass
     pump(lambda: False, 0.3)
     screenshot(win, "main.png")
@@ -158,7 +172,7 @@ def test_hold_cycle_switches(win):
 def test_gesture_rows_offer_only_what_the_app_offers(win):
     for (side, act), row in win.gesture_rows.items():
         codes = win._gesture_fns[(side, act)]
-        assert set(model.GESTURE_OPTIONS[act]) <= set(codes)
+        assert set(win.current_profile.options_for(act)) <= set(codes)
         assert row.get_model().get_n_items() == len(codes)
 
 
@@ -230,6 +244,258 @@ def test_closing_the_wizard_stops_the_test(win):
     assert pump(lambda: not sim(win).test_active)
 
 
+def reconnect(win, *, profile=None, sim_profile=None):
+    """Connect again as a different model and wait for the window to be rebuilt for it."""
+    old = win.session.buds
+    win.overrides.profile = profile
+    win.sim_profile = sim_profile
+    win.apply_connection_overrides()
+    assert pump(lambda: win.session.buds is not None and win.session.buds is not old and win.stack.get_visible_child_name() == "main" and win._applied is not None, timeout=12)
+    assert pump(lambda: win.state is not None and win.state.firmware is not None)
+
+
+def reset(win):
+    win.overrides.force_gestures = win.overrides.force_hold_cycle = win.overrides.force_capabilities = False
+    win.overrides.skip_ear_scan = False
+    win.overrides.fit_timeout = 30.0
+    win.overrides_changed()
+
+
+# -- another model, chosen through the Advanced dialog ----------------------------------
+
+
+def test_choosing_another_profile_in_advanced_rebuilds_the_window(win):
+    adv = AdvancedDialog(win)
+    adv.present()
+    assert "realme Buds Air7 Pro" in adv.model_row.get_subtitle()
+    keys = adv._profile_keys
+    old = win.session.buds
+    win.sim_profile = "test-buds-x"  # make the pretend buds that model too
+    adv.profile_row.set_selected(keys.index("test-buds-x"))
+    adv.apply_device()
+    assert win.overrides.profile == "test-buds-x"
+    assert pump(lambda: win.session.buds is not None and win.session.buds is not old and win.stack.get_visible_child_name() == "main" and win._applied is not None, timeout=12)
+    assert pump(lambda: win.state is not None and win.state.firmware is not None)
+
+    p = win.current_profile
+    assert p.key == "test-buds-x"
+    assert set(win.anc_buttons) == {"off", "transparency", "anc"} and win.level_rows == {}
+    assert set(win.feature_rows) == {"game-mode", "spatial"}
+    assert {act for _, act in win.gesture_rows} == {2, 4}
+    assert win.dynamic_scales == {} and win.fit_row is None
+    assert win.eq_row is not None and win.eq_row.get_model().get_string(0) == "Balanced"
+    assert not win.golden_group.get_visible()
+    # writes use this model's numbers: Off is written as 1 and reported as 8
+    win.anc_buttons["off"].set_active(True)
+    assert pump(lambda: sim(win).anc == 8)
+    win.anc_buttons["transparency"].set_active(True)
+    assert pump(lambda: sim(win).anc == 256)
+    assert pump(lambda: win.anc_buttons["transparency"].get_active())
+    adv.dialog.close()
+    reconnect(win)  # back to the Air7 Pro
+    assert win.current_profile.key == "realme-buds-air7-pro" and "nc" in win.anc_buttons
+
+
+def test_capability_override_shows_fit_test_and_golden_sound_for_a_model_that_lacks_them(win):
+    reconnect(win, profile="test-buds-x", sim_profile="test-buds-x")
+    assert win.fit_row is None and not win.golden_group.get_visible()
+    win.overrides.force_capabilities = True
+    win.overrides_changed()
+    assert win.fit_row is not None and win.golden_group.get_visible()
+    dlg = FitTestDialog(win)
+    dlg.start()
+    assert pump(lambda: dlg.result.get_label() != "")  # and it runs
+    reset(win)
+    assert win.fit_row is None
+    reconnect(win)
+
+
+def test_unrecognised_buds_get_a_cautious_window_and_the_gesture_override_opens_it_up(win, monkeypatch):
+    monkeypatch.setattr(profiles, "find", lambda *a, **k: None)
+    reconnect(win)
+    assert win.current_profile.generic
+    assert win.anc_buttons == {} and win.gesture_rows == {} and win.cycle_row is None and win.fit_row is None
+    assert not win.noise_group.get_visible() and not win.touch_group.get_visible()
+    # the switches the buds report are still there, with placeholder names
+    assert "feature-06" in win.feature_rows and "Feature 0x06" in win.feature_rows["feature-06"].get_title()
+    win.feature_rows["feature-06"].set_active(True)
+    assert pump(lambda: sim(win).features[0x06] is True)
+
+    win.overrides.force_gestures = True
+    win.overrides_changed()
+    assert win.touch_group.get_visible() and (1, 3) in win.gesture_rows and (2, 5) in win.gesture_rows
+    codes = win._gesture_fns[(model.SIDE_LEFT, 3)]
+    assert 0x0B in codes  # every function is offered when forced
+    win.gesture_rows[(model.SIDE_LEFT, 3)].set_selected(codes.index(0x0B))
+    assert pump(lambda: next(e for e in sim(win).gestures if (e.dev, e.btn, e.act) == (1, 1, 3)).fn == 0x0B)
+    reset(win)
+    monkeypatch.undo()
+    reconnect(win)
+    assert win.current_profile.key == "realme-buds-air7-pro"
+
+
+def test_forcing_gestures_on_a_known_model_offers_everything(win):
+    row = win.gesture_rows[(model.SIDE_RIGHT, 3)]
+    assert 0x0B not in win._gesture_fns[(model.SIDE_RIGHT, 3)]
+    win.overrides.force_gestures = True
+    win.overrides_changed()
+    row = win.gesture_rows[(model.SIDE_RIGHT, 3)]
+    codes = win._gesture_fns[(model.SIDE_RIGHT, 3)]
+    assert 0x0B in codes and 0x0D in codes
+    row.set_selected(codes.index(0x0C))  # volume down: not in realme Link's list for a triple tap
+    assert pump(lambda: next(e for e in sim(win).gestures if (e.dev, e.btn, e.act) == (2, 1, 3)).fn == 0x0C)
+    win.gesture_rows[(model.SIDE_RIGHT, 3)].set_selected(win._gesture_fns[(model.SIDE_RIGHT, 3)].index(0x05))
+    assert pump(lambda: next(e for e in sim(win).gestures if (e.dev, e.btn, e.act) == (2, 1, 3)).fn == 0x05)
+    reset(win)
+    assert 0x0B not in win._gesture_fns[(model.SIDE_RIGHT, 3)]
+
+
+def test_forcing_the_hold_cycle_allows_a_single_mode(win):
+    sim(win).hold_cycle = model.ANC_OFF | model.ANC_TRANSPARENCY | model.ANC_MAX
+    win.session.submit(lambda b: b.read_hold_cycle())
+    assert pump(lambda: all(win.cycle_switches[b].get_active() for b in win.cycle_switches))
+    win.overrides.force_hold_cycle = True
+    win.cycle_switches[model.ANC_TRANSPARENCY].set_active(False)
+    assert pump(lambda: sim(win).hold_cycle == model.ANC_OFF | model.ANC_MAX)
+    win.cycle_switches[model.ANC_MAX].set_active(False)
+    assert pump(lambda: sim(win).hold_cycle == model.ANC_OFF)  # one mode: allowed only because it is forced
+    win.cycle_switches[model.ANC_TRANSPARENCY].set_active(True)
+    win.cycle_switches[model.ANC_MAX].set_active(True)
+    assert pump(lambda: sim(win).hold_cycle == model.ANC_OFF | model.ANC_TRANSPARENCY | model.ANC_MAX)
+    reset(win)
+
+
+def test_skip_ear_scan_and_fit_timeout_overrides(win):
+    win.overrides.skip_ear_scan = True
+    dlg = HearingTestDialog(win)
+    dlg.present()
+    before = len([p for p in sim(win).received if p.cmd == 0x040D and p.payload[:1] == b"\x04"])
+    dlg.start()
+    assert pump(lambda: dlg.stack.get_visible_child_name() == "test")
+    assert dlg.scan is None
+    for _ in model.HEARING_NODES:
+        dlg.next_node()
+    dlg.save()
+    assert pump(lambda: sim(win).scan_data is None and sim(win).hearing_record is not None and dlg.stack.get_visible_child_name() == "message")
+    assert len([p for p in sim(win).received if p.cmd == 0x040D and p.payload[:1] == b"\x04"]) == before  # no scan was started
+    dlg.dialog.close()
+    win.overrides.skip_ear_scan = False
+
+    win.overrides.fit_timeout = 0.5
+    sim(win).fit_result = None
+    fit = FitTestDialog(win)
+    fit.start()
+    assert pump(lambda: "no fit-test result" in fit.info.get_label(), timeout=5)
+    sim(win).fit_result = (1, 1)
+    reset(win)
+
+
+# -- the Advanced dialog's tools ---------------------------------------------------------------
+
+
+def test_advanced_overrides_drive_the_window(win):
+    adv = AdvancedDialog(win)
+    adv.present()
+    rows_before = len(win.gesture_rows)
+    adv.force_gestures_row.set_active(True)
+    assert win.overrides.force_gestures and len(win.gesture_rows) > rows_before
+    adv.force_gestures_row.set_active(False)
+    assert not win.overrides.force_gestures and len(win.gesture_rows) == rows_before
+    adv.force_hold_row.set_active(True)
+    adv.force_caps_row.set_active(True)
+    adv.skip_scan_row.set_active(True)
+    adv.fit_timeout_row.set_value(45)
+    assert (win.overrides.force_hold_cycle, win.overrides.force_capabilities, win.overrides.skip_ear_scan, win.overrides.fit_timeout) == (True, True, True, 45.0)
+    reset(win)
+    adv.dialog.close()
+
+
+def test_advanced_tools_scan_raw_json_draft_trace(win):
+    adv = AdvancedDialog(win)
+    adv.present()
+    adv.scan_features()
+    assert pump(lambda: "Auto play/pause" in adv.scan_result.get_label())
+    assert "Golden Sound" in adv.scan_result.get_label()
+
+    adv.raw_cmd_row.set_text("0106")
+    adv.send_raw()
+    assert pump(lambda: adv.raw_result.get_label().startswith("reply 0x8106 status=0"))
+    adv.raw_cmd_row.set_text("zz")
+    adv.send_raw()
+    assert "must be hex" in adv.raw_result.get_label()
+
+    data = json.loads(adv.status_json())
+    assert data["profile"] == "realme-buds-air7-pro" and data["battery"]["left"]["percent"] == 70
+    draft = profiles.profile_from_dict(json.loads(adv.draft_text()), "draft")
+    assert draft.product_ids == ("064C12",) and draft.feature(0x1A) is not None
+
+    assert win.trace and any(" TX " in line for line in win.trace) and any(" RX " in line for line in win.trace)
+    adv.refresh_trace()
+    assert "TX" in adv.trace_text()
+    adv.trace_clear.emit("clicked")
+    assert not win.trace and adv.trace_text() == ""
+    # frames sent from now on show up live
+    win.session.submit(lambda b: b.read_battery())
+    assert pump(lambda: adv.trace_view.get_buffer().get_char_count() > 0)
+    adv.dialog.close()
+
+
+def test_advanced_device_list_and_address(win):
+    adv = AdvancedDialog(win)
+    adv.present()
+    adv.refresh_devices([Device("AA:BB:CC:DD:EE:FF", "realme Buds Air7 Pro", True, True, True), Device("11:22:33:44:55:66", "Mouse")])
+    assert len(adv._device_rows) == 2
+    assert "AA:BB:CC:DD:EE:FF" in adv._device_rows[0].get_subtitle() and "connected" in adv._device_rows[0].get_subtitle()
+    adv.refresh_devices([])
+    assert adv._device_rows == []
+    adv.set_profile_file("/tmp/x.json")
+    assert win.overrides.profile_file == "/tmp/x.json"
+    adv.set_profile_file(None)
+    adv.dialog.close()
+
+
+# -- custom equaliser ---------------------------------------------------------------------------
+
+
+def test_custom_equaliser_create_select_edit_delete(win):
+    assert win.new_eq_button is not None
+    dlg = CustomEqDialog(win)
+    dlg.present()
+    assert list(dlg.scales) == [62, 250, 1000, 4000, 8000, 16000]
+    dlg.name_entry.set_text("Mine")
+    dlg.scales[62].set_value(4)
+    dlg.scales[16000].set_value(-3)
+    dlg.save()
+    assert pump(lambda: len(sim(win).custom_eqs) == 1)
+    eq_id, name, bands = sim(win).custom_eqs[0]
+    assert name == "Mine" and bands[0] == (62, 4) and bands[-1] == (16000, -3)
+    assert pump(lambda: len(win._custom_rows) == 1 and win.eq_row.get_selected() == win._eq_ids.index(eq_id))
+    assert sim(win).eq == eq_id
+
+    win.eq_row.set_selected(0)  # a built-in preset
+    assert pump(lambda: sim(win).eq == 0)
+    win.eq_row.set_selected(win._eq_ids.index(eq_id))  # and back to the custom one
+    assert pump(lambda: sim(win).eq == eq_id)
+
+    edit = CustomEqDialog(win, win.state.custom_eqs[0])
+    edit.scales[1000].set_value(2)
+    edit.save()
+    assert pump(lambda: dict(sim(win).custom_eqs[0][2])[1000] == 2)
+
+    win.delete_custom_eq(win.state.custom_eqs[0])
+    assert pump(lambda: sim(win).custom_eqs == [] and win._custom_rows == [])
+    dlg.dialog.close()
+
+
+def test_empty_custom_eq_name_is_refused(win):
+    dlg = CustomEqDialog(win)
+    dlg.name_entry.set_text("   ")
+    before = len(sim(win).custom_eqs)
+    dlg.save()
+    pump(lambda: False, 0.4)
+    assert len(sim(win).custom_eqs) == before
+
+
 def test_refused_write_puts_the_widgets_back(win):
     sim(win).worn = False
     current = sim(win).anc
@@ -238,6 +504,23 @@ def test_refused_write_puts_the_widgets_back(win):
     assert pump(lambda: win.anc_buttons[key].get_active() and not win.anc_buttons["off"].get_active())
     assert sim(win).anc == current
     sim(win).worn = True
+
+
+def test_every_parity_target_exists_in_the_gui(win):
+    from realmebuds import parity
+
+    adv = AdvancedDialog(win)
+    objects = {"window": win, "advanced": adv, "hearing": HearingTestDialog(win), "eqdialog": CustomEqDialog(win)}
+    for entry in parity.PARITY:
+        owner, _, attr = entry.gui.partition(".")
+        assert hasattr(objects[owner], attr), f"{entry.cli!r} says the GUI has {entry.gui}, but it does not"
+    # every control on the Advanced dialog is either the counterpart of a CLI option or knowingly GUI-only
+    targets = {e.gui.partition(".")[2] for e in parity.PARITY if e.gui.startswith("advanced.")}
+    for name in dir(adv):
+        if name.endswith(("_row", "_button", "_view", "_result", "_copy", "_clear", "_save")) and not name.startswith("_"):
+            assert name in targets or name in parity.GUI_ONLY, f"Advanced has a control {name!r} with no CLI counterpart listed in parity.py"
+    adv.dialog.close()
+    objects["hearing"].dialog.close()
 
 
 def test_disconnect_shows_status_and_reconnects(win):

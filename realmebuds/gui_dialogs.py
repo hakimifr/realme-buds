@@ -53,7 +53,8 @@ class FitTestDialog:
         self.result.set_label("")
         self.info.set_label("Testing… keep still.")
         self.spinner.start()
-        self.window.session.submit(lambda b: b.run_fit_test(), lambda res, err: GLib.idle_add(self._done, res, err))
+        timeout = self.window.overrides.fit_timeout
+        self.window.session.submit(lambda b: b.run_fit_test(timeout=timeout), lambda res, err: GLib.idle_add(self._done, res, err))
 
     def _done(self, result, err) -> bool:
         self.spinner.stop()
@@ -183,6 +184,9 @@ class HearingTestDialog:
 
     def start(self) -> None:
         self.start_button.set_sensitive(False)
+        if self.window.overrides.skip_ear_scan:
+            self._scan_done(None, None)  # the override: no ear scan, so none is stored with the profile
+            return
         self.stack.set_visible_child_name("scan")
         self.scan_spinner.start()
         self.window.session.submit(lambda b: b.ear_scan(self.uid), lambda res, err: GLib.idle_add(self._scan_done, res, err))

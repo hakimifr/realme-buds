@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "realme-buds"
 version = "0.1.0"
-description = "Control realme Buds Air7 Pro from a Linux computer over Bluetooth, no phone app needed"
+description = "Control OPPO/OnePlus/realme-family earbuds (built in: realme Buds Air7 Pro) from a Linux computer over Bluetooth, no phone app needed"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -17,7 +17,10 @@ realme-buds = "realmebuds.cli:main"
 realme-buds-gui = "realmebuds.gui:main"
 
 [tool.setuptools]
-packages = ["realmebuds"]
+packages = ["realmebuds", "realmebuds.profiles"]
+
+[tool.setuptools.package-data]
+"realmebuds.profiles" = ["builtin/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

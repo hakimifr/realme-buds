@@ -242,6 +242,18 @@ none, voice assistant, previous, next, game mode. Touch-and-hold accepts none, v
 noise-control cycle, game mode, and the cycle needs at least two modes. The EQ presets for this model are
 ids 0 to 3 (Pure Raw, Deep Bass, Pure Voice, Pure Bass) from the same data.
 
+## Protocol families in realme Link
+
+The app picks an implementation per model from its cloud config (`HeadsetManagerFactory`, field `sdkVendor`):
+
+| `sdkVendor` | Class | Transport | In this project |
+| --- | --- | --- | --- |
+| `VENDOR_TL` | `com.realme.iot.headset.tl.TLHeadsetConnectionImp` | RFCOMM, service `0000079A-D102-11E1-9B23-00025B00A5A5`, `AA`-framed | yes (family `tl`) |
+| `VENDOR_WM` | `...wm.WMHeadsetManagerImpl` | RFCOMM, standard SPP `00001101-…`, its own simple commands | no |
+| `VENDOR_LD` | `...ld.LDHeadsetManagerImpl` | Airoha SDK (`AirohaLinkHelper`) | no |
+
+The Air7 Pro is `TL`. Which family a model uses is in the cloud config, which was not read.
+
 ## Not implemented on purpose
 
 MindFlow and AI Translate (they depend on the phone app), firmware update, personalised ANC,
