@@ -7,6 +7,7 @@
     fit-test --timeout               fit_timeout_row
     --profile / --profile-file       profile_row / profile_file_button
     --addr / --channel               address_row / channel_row
+    --transport / --service-uuid     transport_row / service_uuid_row
     devices                          devices_row
     features --scan                  scan_button
     raw                              raw_send_button
@@ -34,7 +35,13 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 from . import profiles  # noqa: E402
 from .cli import state_to_dict  # noqa: E402
 from .profiles.draft import build_draft  # noqa: E402
-from .transport import list_devices  # noqa: E402
+from .transport import TRANSPORTS, list_devices  # noqa: E402
+
+TRANSPORT_LABELS = {
+    "auto": "Automatic (RFCOMM first, then Bluetooth LE)",
+    "rfcomm": "RFCOMM (Bluetooth Classic)",
+    "ble": "Bluetooth LE / GATT (experimental, untested on real buds)",
+}
 
 
 class AdvancedDialog:
@@ -109,6 +116,15 @@ class AdvancedDialog:
         g.add(self.address_row)
         self.channel_row = Adw.SpinRow(title="RFCOMM channel (0: look it up automatically)", adjustment=Gtk.Adjustment(value=self.ov.channel or 0, lower=0, upper=30, step_increment=1))
         g.add(self.channel_row)
+        self.transport_row = Adw.ComboRow(
+            title="Link to the buds", subtitle="(command line: --transport)",
+            model=Gtk.StringList.new([TRANSPORT_LABELS[t] for t in TRANSPORTS]),
+        )
+        if self.ov.transport in TRANSPORTS:
+            self.transport_row.set_selected(TRANSPORTS.index(self.ov.transport))
+        g.add(self.transport_row)
+        self.service_uuid_row = Adw.EntryRow(title="Bluetooth LE service UUID (blank: the default, used by --transport ble)", text=self.ov.service_uuid or "")
+        g.add(self.service_uuid_row)
 
         self.apply_button = Gtk.Button(label="Apply and reconnect", css_classes=["suggested-action"], halign=Gtk.Align.END)
         self.apply_button.connect("clicked", lambda *_: self.apply_device())
@@ -127,6 +143,9 @@ class AdvancedDialog:
         self.ov.address = self.address_row.get_text().strip() or None
         ch = int(self.channel_row.get_value())
         self.ov.channel = ch or None
+        idx = self.transport_row.get_selected()
+        self.ov.transport = TRANSPORTS[idx] if 0 <= idx < len(TRANSPORTS) else "auto"
+        self.ov.service_uuid = self.service_uuid_row.get_text().strip() or None
         self.window.apply_connection_overrides()
 
     def _choose_profile_file(self) -> None:

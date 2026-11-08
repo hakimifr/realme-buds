@@ -1,0 +1,237 @@
+{
+ "schema": 1,
+ "key": "realme-buds-air-5",
+ "name": "realme Buds Air 5",
+ "vendor": "realme",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "062012"
+  ],
+  "names": [
+   "realme Buds Air 5"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "anc": {
+  "modes": [
+   {
+    "key": "off",
+    "label": "Off",
+    "set": 1,
+    "evidence": "family",
+    "report": 1
+   },
+   {
+    "key": "transparency",
+    "label": "Transparency",
+    "set": 2,
+    "evidence": "family",
+    "report": 2
+   },
+   {
+    "key": "mild",
+    "label": "Mild",
+    "set": 4,
+    "evidence": "family",
+    "report": 4,
+    "group": "nc"
+   },
+   {
+    "key": "moderate",
+    "label": "Moderate",
+    "set": 16,
+    "evidence": "family",
+    "report": 16,
+    "group": "nc"
+   },
+   {
+    "key": "max",
+    "label": "Max",
+    "set": 8,
+    "evidence": "family",
+    "report": 8,
+    "group": "nc"
+   },
+   {
+    "key": "smart",
+    "label": "Smart",
+    "set": 32,
+    "evidence": "family",
+    "report": 32,
+    "group": "nc"
+   }
+  ],
+  "groups": [
+   {
+    "key": "nc",
+    "label": "Noise cancellation",
+    "default": "smart",
+    "generic": []
+   }
+  ],
+  "buttons": [
+   "nc",
+   "off",
+   "transparency"
+  ],
+  "hold_cycle": {
+   "options": [
+    {
+     "key": "anc",
+     "label": "Noise cancellation",
+     "bit": 8
+    },
+    {
+     "key": "off",
+     "label": "Off",
+     "bit": 1
+    },
+    {
+     "key": "transparency",
+     "label": "Transparency",
+     "bit": 2
+    }
+   ],
+   "min": 2
+  }
+ },
+ "features": [
+  {
+   "key": "wear-detect",
+   "id": 4,
+   "label": "Auto play/pause",
+   "note": "Pause when a bud is taken out, resume when it is back",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "game-mode",
+   "id": 6,
+   "label": "Game mode",
+   "note": "Low-latency audio",
+   "group": "mode",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "auto-answer",
+   "id": 8,
+   "label": "Auto-answer",
+   "note": "Answer a call when a bud is taken out of the case",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "enhance-voices",
+   "id": 9,
+   "label": "Enhance voices",
+   "note": "",
+   "group": "noise",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "dual",
+   "id": 17,
+   "label": "Dual-device connection",
+   "note": "Stay connected to two devices",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "lhdc",
+   "id": 24,
+   "label": "High-definition sound (LHDC)",
+   "note": "Buds reconnect after changing this",
+   "group": "sound",
+   "drops_link": true,
+   "evidence": "family"
+  },
+  {
+   "key": "spatial",
+   "id": 27,
+   "label": "Spatial audio",
+   "note": "",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "dynamic-audio",
+   "id": 29,
+   "label": "Dynamic audio",
+   "note": "",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   2,
+   3,
+   4
+  ],
+  "options": {
+   "2": [
+    0,
+    1,
+    3,
+    6
+   ],
+   "3": [
+    0,
+    3,
+    5,
+    6,
+    11,
+    12,
+    13,
+    17
+   ],
+   "4": [
+    0,
+    3,
+    8,
+    17
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Pure Raw",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Deep Bass",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Pure Voice",
+    "evidence": "family"
+   },
+   {
+    "id": 3,
+    "label": "Pure Bass",
+    "evidence": "family"
+   }
+  ]
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'."
+}

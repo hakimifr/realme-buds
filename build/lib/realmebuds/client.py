@@ -560,14 +560,16 @@ class Buds:
             raise self._verify_failed(f"custom EQ {eq_id} is still on the buds after deleting it")
         return eqs
 
-    def set_anc(self, value: int, expect: int | None = None) -> int | None:
+    def set_anc(self, value: int, expect: "int | tuple[int, ...] | None" = None) -> int | None:
         """Write a raw noise-control value and check the buds report ``expect`` (default: the
-        same number; some models report a different number than they are written)."""
-        want = value if expect is None else expect
+        same number). Some models report a different number than they are written, or one of
+        several, so ``expect`` may be a tuple of accepted values."""
+        want = (value,) if expect is None else (expect if isinstance(expect, tuple) else (expect,))
         self._write(protocol.CMD_ANC_WRITE, b"\x01\x01" + protocol.mask_to_bytes(value))
         got = self.read_anc()
-        if got != want:
-            raise self._verify_failed(f"asked for noise mode 0x{value:02X}, buds report {got!r} (expected 0x{want:02X})")
+        if got not in want:
+            shown = " or ".join(f"0x{w:02X}" for w in want)
+            raise self._verify_failed(f"asked for noise mode 0x{value:02X}, buds report {got!r} (expected {shown})")
         return got
 
     def set_anc_mode(self, mode: "profiles.AncMode | str") -> int | None:
@@ -577,7 +579,7 @@ class Buds:
                 mode = self.active_profile.mode(mode)
             except KeyError:
                 raise BudsError(f"the profile {self.active_profile.key!r} has no noise-control mode {mode!r}") from None
-        return self.set_anc(mode.set, expect=mode.report)
+        return self.set_anc(mode.set, expect=self.active_profile.expected_reports(mode))
 
     def set_feature(self, feature_id: int, on: bool, *, verify: bool = True) -> bool | None:
         self._write(protocol.CMD_FEATURE_WRITE, bytes([feature_id, 1 if on else 0]))
@@ -658,6 +660,8 @@ class Buds:
         Both buds must be in the ears. The result arrives as a push (event 4), which the
         app handles even for events it did not register for, so this does the same.
         """
+        if not self.supports(protocol.CMD_FIT_TEST):
+            raise BudsError("these buds do not list the fit test in their capabilities")
         self.read_wearing()
         out_of_ear = [c for c in (1, 2) if self.state.wearing.get(c) not in model.IN_EAR_STATUSES]
         if out_of_ear:

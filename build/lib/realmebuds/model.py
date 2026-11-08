@@ -36,7 +36,7 @@ SIDE_BOTH = 4
 BTN_MAIN = 1
 BTN_CALL = 6
 
-SIDES = {"left": SIDE_LEFT, "right": SIDE_RIGHT}
+SIDES = {"left": SIDE_LEFT, "right": SIDE_RIGHT, "both": SIDE_BOTH}  # "both": models with one hold gesture for both buds
 ACTIONS = {
     "single": 1,
     "double": 2,
@@ -59,21 +59,27 @@ class GestureFn:
     evidence: str
 
 
-# Function codes of the family (measured on OnePlus Buds 4, used unchanged by realme buds).
-# the same family. Which of these a given gesture accepts is decided by realme
-# Link's per-model data, which we have not read; the buds themselves will reject
-# a write they do not like, and every write is read back.
+# Function codes of the family. Measured on OnePlus Buds 4 (none, play/pause, assistant, previous, next,
+# noise cycle, the two slide functions, volume, game mode, call handling) and used unchanged by realme buds.
+# Favourite/collect music and zen mode are named in HeyMelody's data but were not measured. Which of
+# these a gesture accepts is the model's profile; the buds reject what they do not like and every
+# write is read back.
 GESTURE_FNS = (
     GestureFn("none", 0x00, "No function", "family"),
     GestureFn("play-pause", 0x01, "Play / pause", "family"),
     GestureFn("assistant", 0x03, "Voice assistant", "family"),
     GestureFn("previous", 0x05, "Previous track", "family"),
     GestureFn("next", 0x06, "Next track", "family"),
+    GestureFn("slide-volume", 0x07, "Volume (slide)", "family"),
     GestureFn("anc-cycle", 0x08, "Switch noise control", "reported"),
+    GestureFn("favourite-music", 0x09, "Favourite music", "guess"),
+    GestureFn("slide-track", 0x0A, "Switch track (slide)", "family"),
     GestureFn("volume-up", 0x0B, "Volume up", "family"),
     GestureFn("volume-down", 0x0C, "Volume down", "family"),
     GestureFn("switch-device", 0x0D, "Switch device", "guess"),
+    GestureFn("zen-mode", 0x12, "Zen mode", "guess"),
     GestureFn("game-mode", 0x11, "Game mode", "family"),
+    GestureFn("collect-music", 0x16, "Collect music", "guess"),
     GestureFn("decline", 0x1C, "Decline call", "family"),
     GestureFn("answer", 0x1D, "Answer / end call", "family"),
 )

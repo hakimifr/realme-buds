@@ -16,7 +16,7 @@ from . import model, parsing, profiles
 from .client import Buds, BudsError, State
 from .profiles import DeviceProfile, ProfileError
 from .session import connect_buds
-from .transport import TransportError, list_devices
+from .transport import TRANSPORTS, TransportError, list_devices
 
 EXPERIMENTAL = "(experimental: not confirmed on real buds of this model)"
 UNTESTED = "(untested on real hardware, but the payload matches what realme Link sends)"
@@ -41,6 +41,8 @@ def open_buds(args: argparse.Namespace) -> Iterator[Buds]:
             profile=getattr(args, "profile", None),
             profile_file=getattr(args, "profile_file", None),
             sim_profile=getattr(args, "sim_profile", None),
+            transport=getattr(args, "transport", "auto"),
+            service_uuid=getattr(args, "service_uuid", None),
         )
     except (TransportError, ProfileError) as e:
         raise CliError(str(e)) from e
@@ -402,6 +404,12 @@ def cmd_gesture(args) -> int:
     with open_buds(args) as buds:
         prof = buds.active_profile
         if not args.force:
+            if side == model.SIDE_BOTH and not (prof.hold_both and action == 4):
+                raise CliError(f"{prof.name} has no gesture shared by both buds. Use --force to try anyway")
+            if prof.hold_both and action == 4 and side != model.SIDE_BOTH:
+                raise CliError(f"on {prof.name} touch-and-hold is one gesture for both buds: use side 'both'. Use --force to try anyway")
+            if side in (model.SIDE_LEFT, model.SIDE_RIGHT) and side not in prof.gesture_sides:
+                raise CliError(f"{prof.name} has no {args.side} bud gesture (it is a single-button model). Use --force to try anyway")
             if action not in prof.gesture_actions:
                 have = ", ".join(a for a, n in model.ACTIONS.items() if n in prof.gesture_actions) or "none listed"
                 raise CliError(f"{prof.name} does not list a '{args.action}' gesture to remap (it lists: {have}). Use --force to try anyway")
@@ -678,6 +686,9 @@ def build_parser(known: dict[str, DeviceProfile] | None = None) -> argparse.Argu
     )
     ap.add_argument("--addr", help="Bluetooth address of the buds (default: the one connected here)")
     ap.add_argument("--channel", type=int, help="RFCOMM channel (default: look it up over SDP)")
+    ap.add_argument("--transport", choices=TRANSPORTS, default="auto",
+                    help="how to reach the buds: auto (RFCOMM, then Bluetooth LE), rfcomm, or ble (experimental, untested on real buds)")
+    ap.add_argument("--service-uuid", metavar="UUID", help="GATT service of the control channel for --transport ble (default: 0000079a-d102-11e1-9b23-00025b00a5a5)")
     ap.add_argument("--trace", action="store_true", help="print every frame sent and received to stderr")
     ap.add_argument("--profile", metavar="KEY", help="use this device profile instead of recognising the buds (see: profile list)")
     ap.add_argument("--profile-file", metavar="FILE", help="use the profile in this JSON file (to try a draft)")

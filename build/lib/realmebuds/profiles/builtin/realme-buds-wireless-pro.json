@@ -1,0 +1,98 @@
+{
+ "schema": 1,
+ "key": "realme-buds-wireless-pro",
+ "name": "realme Buds Wireless Pro",
+ "vendor": "realme",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "E3009F"
+  ],
+  "names": [
+   "realme Buds Wireless Pro"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "features": [
+  {
+   "key": "wear-detect",
+   "id": 4,
+   "label": "Auto play/pause",
+   "note": "Pause when a bud is taken out, resume when it is back",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "game-mode",
+   "id": 6,
+   "label": "Game mode",
+   "note": "Low-latency audio",
+   "group": "mode",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "auto-answer",
+   "id": 8,
+   "label": "Auto-answer",
+   "note": "Answer a call when a bud is taken out of the case",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "enhance-voices",
+   "id": 9,
+   "label": "Enhance voices",
+   "note": "",
+   "group": "noise",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "dual",
+   "id": 17,
+   "label": "Dual-device connection",
+   "note": "Stay connected to two devices",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "lhdc",
+   "id": 24,
+   "label": "High-definition sound (LHDC)",
+   "note": "Buds reconnect after changing this",
+   "group": "sound",
+   "drops_link": true,
+   "evidence": "family"
+  },
+  {
+   "key": "spatial",
+   "id": 27,
+   "label": "Spatial audio",
+   "note": "",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "dynamic-audio",
+   "id": 29,
+   "label": "Dynamic audio",
+   "note": "",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "equalizer": {
+  "presets": []
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'. HeyMelody lists this model without noise-control modes, so none are offered."
+}

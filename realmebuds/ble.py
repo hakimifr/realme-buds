@@ -72,6 +72,21 @@ _BLUEZ_HINTS = {
 }
 
 
+def _no_gi_message() -> str:
+    """Bluetooth LE needs PyGObject, which only the distribution's Python has. Say how to get it."""
+    import sys
+
+    from . import launch
+
+    python, _ = launch.find_python()
+    msg = f"Bluetooth LE needs PyGObject (python3-gobject), and this Python ({sys.executable}) does not have it."
+    if python:
+        msg += f" Run the tool with one that does: PYTHONPATH={launch.package_root()} {python} -m realmebuds ..."
+    else:
+        msg += " " + launch.INSTALL_HELP.replace("\n", " ")
+    return msg
+
+
 def describe_dbus_error(err: Any) -> str:
     """A GLib.Error from a D-Bus call as one sentence a user can act on."""
     message = getattr(err, "message", str(err))
@@ -157,7 +172,7 @@ class GattSocket:
 
     def __init__(self, addr: str, service_uuid: str | None = None, *, timeout: float = CONNECT_TIMEOUT) -> None:
         if Gio is None:
-            raise TransportError("Bluetooth LE needs PyGObject (python3-gi), which is not installed")
+            raise TransportError(_no_gi_message())
         self.addr = addr.upper()
         self.service_uuid = normalise_uuid(service_uuid) if service_uuid else DEFAULT_SERVICE
         self.mtu_payload = DEFAULT_ATT_PAYLOAD

@@ -1,0 +1,155 @@
+{
+ "schema": 1,
+ "key": "oppo-enco-air2-pro",
+ "name": "OPPO Enco Air2 Pro",
+ "vendor": "oppo",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "063810"
+  ],
+  "names": [
+   "OPPO Enco Air2 Pro"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "anc": {
+  "modes": [
+   {
+    "key": "off",
+    "label": "Off",
+    "set": 2,
+    "evidence": "family",
+    "report": 2
+   },
+   {
+    "key": "transparency",
+    "label": "Transparency",
+    "set": 4,
+    "evidence": "family",
+    "report": [
+     4,
+     8
+    ]
+   },
+   {
+    "key": "anc",
+    "label": "Noise cancellation",
+    "set": 1,
+    "evidence": "family",
+    "report": 1
+   }
+  ],
+  "groups": [],
+  "buttons": [
+   "anc",
+   "off",
+   "transparency"
+  ],
+  "hold_cycle": {
+   "options": [
+    {
+     "key": "anc",
+     "label": "Noise cancellation",
+     "bit": 1
+    },
+    {
+     "key": "off",
+     "label": "Off",
+     "bit": 2
+    },
+    {
+     "key": "transparency",
+     "label": "Transparency",
+     "bit": 4
+    }
+   ],
+   "min": 1
+  }
+ },
+ "features": [
+  {
+   "key": "wear-detect",
+   "id": 4,
+   "label": "Auto play/pause",
+   "note": "Pause when a bud is taken out, resume when it is back",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "game-mode",
+   "id": 6,
+   "label": "Game mode",
+   "note": "Low-latency audio",
+   "group": "mode",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "options": {
+   "1": [
+    0,
+    1
+   ],
+   "2": [
+    0,
+    1,
+    5,
+    6,
+    22
+   ],
+   "3": [
+    0,
+    17,
+    3,
+    22
+   ],
+   "4": [
+    8
+   ],
+   "6": [
+    0,
+    11,
+    12,
+    13
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Nature Balance",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Bass boost",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Clear Vocals",
+    "evidence": "family"
+   }
+  ]
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'."
+}

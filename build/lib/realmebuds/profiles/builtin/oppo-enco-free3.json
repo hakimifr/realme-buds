@@ -1,0 +1,229 @@
+{
+ "schema": 1,
+ "key": "oppo-enco-free3",
+ "name": "OPPO Enco Free3",
+ "vendor": "oppo",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "066010"
+  ],
+  "names": [
+   "OPPO Enco Free3"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "anc": {
+  "modes": [
+   {
+    "key": "off",
+    "label": "Off",
+    "set": 1,
+    "evidence": "family",
+    "report": [
+     1,
+     8
+    ]
+   },
+   {
+    "key": "transparency",
+    "label": "Transparency",
+    "set": 4,
+    "evidence": "family",
+    "report": [
+     4,
+     256
+    ]
+   },
+   {
+    "key": "mild",
+    "label": "Mild",
+    "set": 64,
+    "evidence": "family",
+    "report": 64,
+    "group": "nc"
+   },
+   {
+    "key": "moderate",
+    "label": "Moderate",
+    "set": 32,
+    "evidence": "family",
+    "report": 32,
+    "group": "nc"
+   },
+   {
+    "key": "max",
+    "label": "Max",
+    "set": 16,
+    "evidence": "family",
+    "report": 16,
+    "group": "nc"
+   },
+   {
+    "key": "smart",
+    "label": "Smart",
+    "set": 128,
+    "evidence": "family",
+    "report": 128,
+    "group": "nc"
+   }
+  ],
+  "groups": [
+   {
+    "key": "nc",
+    "label": "Noise cancellation",
+    "default": "smart",
+    "generic": [
+     2
+    ]
+   }
+  ],
+  "buttons": [
+   "nc",
+   "off",
+   "transparency"
+  ],
+  "hold_cycle": {
+   "options": [
+    {
+     "key": "anc",
+     "label": "Noise cancellation",
+     "bit": 2
+    },
+    {
+     "key": "off",
+     "label": "Off",
+     "bit": 1
+    },
+    {
+     "key": "transparency",
+     "label": "Transparency",
+     "bit": 4
+    }
+   ],
+   "min": 1
+  }
+ },
+ "features": [
+  {
+   "key": "wear-detect",
+   "id": 4,
+   "label": "Auto play/pause",
+   "note": "Pause when a bud is taken out, resume when it is back",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "golden-sound",
+   "id": 11,
+   "label": "Golden Sound",
+   "note": "Hearing profile made by the hearing test",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "dual",
+   "id": 17,
+   "label": "Dual-device connection",
+   "note": "Stay connected to two devices",
+   "group": "personal",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "lhdc",
+   "id": 24,
+   "label": "High-definition sound (LHDC)",
+   "note": "Buds reconnect after changing this",
+   "group": "sound",
+   "drops_link": true,
+   "evidence": "family"
+  },
+  {
+   "key": "game-mode",
+   "id": 6,
+   "label": "Game mode",
+   "note": "Low-latency audio",
+   "group": "mode",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "spatial",
+   "id": 27,
+   "label": "Spatial audio",
+   "note": "",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "options": {
+   "1": [
+    0,
+    1
+   ],
+   "2": [
+    0,
+    1,
+    17,
+    3,
+    5,
+    6
+   ],
+   "3": [
+    0,
+    17,
+    3,
+    5,
+    6
+   ],
+   "4": [
+    8
+   ],
+   "6": [
+    0,
+    11,
+    12
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Nature Balance",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Bass boost",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Natural Inspiration",
+    "evidence": "family"
+   }
+  ]
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": true
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'."
+}

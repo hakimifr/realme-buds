@@ -16,7 +16,7 @@ test = ["pytest"]
 
 [project.scripts]
 realme-buds = "realmebuds.cli:main"
-realme-buds-gui = "realmebuds.gui:main"
+realme-buds-gui = "realmebuds.launch:main"
 
 [tool.setuptools]
 packages = ["realmebuds", "realmebuds.profiles"]

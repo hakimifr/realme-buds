@@ -1,0 +1,88 @@
+{
+ "schema": 1,
+ "key": "oneplus-nord-buds-ce",
+ "name": "OnePlus Nord Buds CE",
+ "vendor": "oneplus",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "061C14"
+  ],
+  "names": [
+   "OnePlus Nord Buds CE"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "features": [
+  {
+   "key": "game-mode",
+   "id": 6,
+   "label": "Game mode",
+   "note": "Low-latency audio",
+   "group": "mode",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   1,
+   2,
+   3
+  ],
+  "options": {
+   "1": [
+    0,
+    1
+   ],
+   "2": [
+    0,
+    1,
+    17,
+    3,
+    5,
+    6
+   ],
+   "3": [
+    0,
+    17,
+    3,
+    5,
+    6
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Balanced",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Bass",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Clear Vocals",
+    "evidence": "family"
+   },
+   {
+    "id": 3,
+    "label": "Gentle",
+    "evidence": "family"
+   }
+  ]
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'. HeyMelody lists this model without noise-control modes, so none are offered."
+}

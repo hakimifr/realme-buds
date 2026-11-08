@@ -112,15 +112,25 @@ python3 -m realmebuds status          # command line
 python3 -m realmebuds.gui             # GTK app
 ```
 
-Or install the two commands (`realme-buds`, `realme-buds-gui`) for your user:
+Or install the two commands (`realme-buds`, `realme-buds-gui`) for your user, with whichever tool you like:
 
 ```sh
-pipx install --system-site-packages .
+uv tool install .            # or: pipx install .
 install -Dm644 data/realme-buds.desktop ~/.local/share/applications/realme-buds.desktop
 ```
 
+The package has no Python dependencies of its own, and the command line runs anywhere. The GTK app needs PyGObject,
+which only your distribution's Python has (`python3-gobject`), while `uv` and `pipx` build an isolated environment
+on some other interpreter. So `realme-buds-gui` checks for GTK first and, if this Python has none, runs itself on one
+that does (the system `/usr/bin/python3`, or whatever `REALME_BUDS_PYTHON` points at). You do not need
+`--system-site-packages`. If no Python on the machine has GTK 4 and libadwaita, it says what to install.
+
+The same applies to the experimental Bluetooth LE link, which needs PyGObject too: in an isolated environment the
+command line tells you the exact command that works, for example
+`PYTHONPATH=<site-packages> /usr/bin/python3 -m realmebuds --transport ble status`.
+
 It needs no root and no daemon. It talks to the buds with ordinary Bluetooth sockets, or, for the experimental
-Bluetooth LE link, through BlueZ's D-Bus API (PyGObject, already needed for the GUI).
+Bluetooth LE link, through BlueZ's D-Bus API.
 
 ## Command line
 
@@ -204,6 +214,7 @@ Layout:
 | `client.py`, `session.py` | the threaded client with read-back verified writes; an auto-reconnecting session |
 | `sim.py` | pretend buds, can be any profile, used by the tests (`tests/fake_bluez.py` serves them as a fake BlueZ over GATT) |
 | `cli.py` | the command line |
+| `launch.py` | the `realme-buds-gui` entry point: runs the app on a Python that has GTK when the current one does not |
 | `gui.py`, `gui_advanced.py`, `gui_dialogs.py`, `gui_eq.py` | the GTK app and its dialogs |
 | `parity.py` | the CLI-to-GUI mapping that tests enforce |
 

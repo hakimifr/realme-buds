@@ -1,0 +1,91 @@
+{
+ "schema": 1,
+ "key": "oneplus-bullets-wireless-z3",
+ "name": "OnePlus Bullets Wireless Z3",
+ "vendor": "oneplus",
+ "family": "tl",
+ "match": {
+  "product_ids": [
+   "051014"
+  ],
+  "names": [
+   "OnePlus Bullets Wireless Z3"
+  ]
+ },
+ "origin": "QuickBuds models.json (GPL-3.0-or-later, https://github.com/spizganed/QuickBuds), itself extracted from HeyMelody and realme Link",
+ "features": [
+  {
+   "key": "spatial",
+   "id": 27,
+   "label": "Spatial audio",
+   "note": "",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  },
+  {
+   "key": "dynamic-audio",
+   "id": 29,
+   "label": "BassWave",
+   "note": "Bass boost engine",
+   "group": "sound",
+   "drops_link": false,
+   "evidence": "family"
+  }
+ ],
+ "gestures": {
+  "sides": [
+   1,
+   2
+  ],
+  "actions": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "options": {
+   "1": [
+    1
+   ],
+   "2": [
+    6
+   ],
+   "3": [
+    5
+   ],
+   "4": [
+    3
+   ]
+  }
+ },
+ "equalizer": {
+  "presets": [
+   {
+    "id": 0,
+    "label": "Balanced",
+    "evidence": "family"
+   },
+   {
+    "id": 1,
+    "label": "Bass",
+    "evidence": "family"
+   },
+   {
+    "id": 2,
+    "label": "Bold",
+    "evidence": "family"
+   },
+   {
+    "id": 3,
+    "label": "Clear Vocals",
+    "evidence": "family"
+   }
+  ]
+ },
+ "capabilities": {
+  "fit_test": true,
+  "golden_sound": false
+ },
+ "notes": "Generated from QuickBuds models.json. Not tried on real buds: everything is evidence 'family'. HeyMelody lists this model without noise-control modes, so none are offered. BassWave has one level on the buds' side and is not modelled as bands here, only its switch is."
+}
