@@ -13,6 +13,7 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from . import model  # noqa: E402
 from .client import Buds, State  # noqa: E402
+from .gui_dialogs import FitTestDialog, HearingTestDialog  # noqa: E402
 from .session import Session, connect_buds  # noqa: E402
 
 APP_ID = "dev.realmebuds.Controller"
@@ -144,6 +145,16 @@ class BudsWindow(Adw.ApplicationWindow):
             self.dynamic_group.add(row)
             self.dynamic_scales[band] = scale
 
+        self.golden_group = self._group("Golden Sound", "A sound profile made from a short hearing test")
+        self.golden_switch = self._switch_row("Golden Sound")
+        self.golden_switch.connect("notify::active", self._on_golden_switch)
+        self.golden_group.add(self.golden_switch)
+        self.profile_row = Adw.ActionRow(title="Hearing profile", subtitle="None")
+        profile_button = Gtk.Button(label="Run hearing test…", valign=Gtk.Align.CENTER)
+        profile_button.connect("clicked", lambda *_: HearingTestDialog(self).present())
+        self.profile_row.add_suffix(profile_button)
+        self.golden_group.add(self.profile_row)
+
         self.mode_group = self._group("Mode")
         self.personal_group = self._group("Personalisation")
 
@@ -153,7 +164,6 @@ class BudsWindow(Adw.ApplicationWindow):
         side_names = {model.SIDE_LEFT: "Left", model.SIDE_RIGHT: "Right"}
         for side, act in GESTURE_ROWS:
             row = Adw.ComboRow(title=f"{side_names[side]} bud: {model.ACTION_LABELS[act].lower()}")
-            row.set_model(Gtk.StringList.new([g.label for g in model.GESTURE_FNS]))
             row.connect("notify::selected", self._on_gesture_selected, side, act)
             self.touch_group.add(row)
             self.gesture_rows[(side, act)] = row
@@ -175,6 +185,12 @@ class BudsWindow(Adw.ApplicationWindow):
             row.connect("notify::active", self._on_feature_toggled, feat)
             groups[FEATURE_GROUP[key]].add(row)
             self.feature_rows[key] = row
+
+        fit_row = Adw.ActionRow(title="Earbud fit test", subtitle="Checks that the ear tips seal well")
+        fit_button = Gtk.Button(label="Start", valign=Gtk.Align.CENTER)
+        fit_button.connect("clicked", lambda *_: FitTestDialog(self).present())
+        fit_row.add_suffix(fit_button)
+        self.personal_group.add(fit_row)
 
         find_group = self._group("Find my earbuds")
         find_row = Adw.ActionRow(title="Make the buds ring", subtitle="Take them out of your ears first")
@@ -234,6 +250,7 @@ class BudsWindow(Adw.ApplicationWindow):
             self._refresh_features(st)
             self._refresh_eq(st)
             self._refresh_dynamic(st)
+            self._refresh_golden(st)
             self._refresh_touch(st)
             self.firmware_label.set_subtitle(st.firmware or "–")
         finally:
@@ -296,18 +313,31 @@ class BudsWindow(Adw.ApplicationWindow):
             if scale:
                 scale.set_sensitive(st.features.get(0x1D, True))
 
+    def _refresh_golden(self, st: State) -> None:
+        present = 0x0B in st.features or bool(st.hearing_record and st.hearing_record.entries)
+        self.golden_group.set_visible(present)
+        self.golden_switch.set_visible(0x0B in st.features)
+        if 0x0B in st.features:
+            self.golden_switch.set_active(st.features[0x0B])
+        rec = st.hearing_record
+        if rec and rec.entries:
+            self.profile_row.set_subtitle(f"{rec.name or 'Unnamed'} (id {rec.id})")
+        else:
+            self.profile_row.set_subtitle("None yet. Run the hearing test to make one.")
+
     def _refresh_touch(self, st: State) -> None:
         for (side, act), row in self.gesture_rows.items():
             slots = [e for e in st.gestures if e.dev == side and e.act == act and e.btn != model.BTN_CALL]
             row.set_visible(bool(slots))
             if not slots:
                 continue
-            codes = [g.code for g in model.GESTURE_FNS]
             fn = slots[0].fn
+            codes = list(model.GESTURE_OPTIONS.get(act, [g.code for g in model.GESTURE_FNS]))
             if fn not in codes:
-                codes = codes + [fn]
-                row.set_model(Gtk.StringList.new([g.label for g in model.GESTURE_FNS] + [f"Unknown (0x{fn:02X})"]))
+                codes.append(fn)  # something set elsewhere that the app does not offer: show it, do not hide it
+            labels = [model.GESTURE_FN_BY_CODE[c].label if c in model.GESTURE_FN_BY_CODE else f"Unknown (0x{c:02X})" for c in codes]
             self._gesture_fns[(side, act)] = codes
+            row.set_model(Gtk.StringList.new(labels))
             row.set_selected(codes.index(fn))
         mask = st.hold_cycle or 0
         self.cycle_row.set_visible(any(e.fn == model.FN_ANC_CYCLE for e in st.gestures) or bool(mask))
@@ -365,6 +395,12 @@ class BudsWindow(Adw.ApplicationWindow):
 
         self.act(do, message)
 
+    def _on_golden_switch(self, row: Adw.SwitchRow, _pspec) -> None:
+        if self._updating:
+            return
+        on = row.get_active()
+        self.act(lambda b: b.set_golden_sound(on))
+
     def _on_dynamic_switch(self, row: Adw.SwitchRow, _pspec) -> None:
         if self._updating:
             return
@@ -414,8 +450,8 @@ class BudsWindow(Adw.ApplicationWindow):
         for b, sw in self.cycle_switches.items():
             if sw.get_active():
                 mask |= b
-        if mask == 0:
-            self.toast("Touch and hold needs at least one mode to cycle through")
+        if bin(mask).count("1") < model.HOLD_CYCLE_MIN:
+            self.toast(f"Touch and hold needs at least {model.HOLD_CYCLE_MIN} modes to cycle through")
             self.refresh_ui()
             return
         self.act(lambda b: b.set_hold_cycle(mask))

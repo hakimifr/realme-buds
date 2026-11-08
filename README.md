@@ -38,9 +38,12 @@ account. A command line tool and a GTK4 app, both on top of the same small libra
 | Custom EQ (6 bands, +-6 dB) | `eq save` | no | payload confirmed in the app's code, untested on real buds |
 | Dynamic audio (3 bands) | `dynamic-audio` | yes | confirmed in the app's code and working on a real Air7 Pro |
 | Touch remapping (double / triple / hold, per bud) | `gesture` | yes | partly reported |
+| Earbud fit test | `fit-test` | yes | payloads and result format confirmed in the app's code, untested on real buds |
+| Golden Sound (ear scan, hearing test, profile on/off) | `golden-sound` | yes | whole flow confirmed in the app's code, untested on real buds |
 | Find my earbuds | `find` | yes | family-level |
 
-Left out on purpose: MindFlow, AI Translate, Golden Sound, fit test, firmware updates.
+Left out on purpose: MindFlow, AI Translate, firmware updates, and managing several saved Golden Sound
+profiles (the buds only keep the active one, so this tool makes a new one each time).
 "Family-level" means it was seen on other realme/OPPO buds with the same protocol but
 not confirmed on an Air7 Pro. Those commands print an "experimental" note. Every write
 is read back from the buds, and a write that did not take is reported as a failure.
@@ -89,6 +92,8 @@ realme-buds dynamic-audio low +2         # or just the bands you name; also: on 
 realme-buds gestures                     # show the touch table
 realme-buds gesture left double next     # side, double|triple|hold, function
 realme-buds hold-cycle off,transparency,anc
+realme-buds fit-test                     # seal check, both buds in
+realme-buds golden-sound                 # status; also: on | off | test (guided hearing test)
 realme-buds watch                        # live changes, including from the buds' own touch controls
 realme-buds devices                      # what BlueZ knows about
 ```
@@ -124,6 +129,8 @@ If a command fails, rerun it with `--trace` and keep the output.
 - Spatial audio and LHDC are separate switches here. The official app treats them as
   exclusive on some models, so if one refuses to turn on, check the other.
 - Settings are stored on the buds, so they stick for your phone too.
+- **Golden Sound** tones play inside your ears. The test starts quiet and asks before every
+  loud step, but keep it sensible. `realme-buds golden-sound off` turns the profile off again.
 
 ## Development
 

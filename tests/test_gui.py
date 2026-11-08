@@ -21,6 +21,7 @@ if not Gtk.init_check():
 
 from realmebuds import model  # noqa: E402
 from realmebuds.gui import BudsApp  # noqa: E402
+from realmebuds.gui_dialogs import FitTestDialog, HearingTestDialog  # noqa: E402
 from realmebuds.session import connect_buds  # noqa: E402
 
 
@@ -136,8 +137,9 @@ def test_dynamic_audio_sliders_are_debounced_and_written(win):
 def test_touch_controls(win):
     row = win.gesture_rows[(model.SIDE_LEFT, 3)]
     codes = win._gesture_fns[(model.SIDE_LEFT, 3)]
-    row.set_selected(codes.index(0x0B))  # volume up
-    assert pump(lambda: next(e for e in sim(win).gestures if (e.dev, e.btn, e.act) == (1, 1, 3)).fn == 0x0B)
+    assert 0x0B not in codes  # volume is not offered for a triple tap, matching realme Link
+    row.set_selected(codes.index(0x11))  # game mode
+    assert pump(lambda: next(e for e in sim(win).gestures if (e.dev, e.btn, e.act) == (1, 1, 3)).fn == 0x11)
     # the right bud is untouched
     assert next(e for e in sim(win).gestures if (e.dev, e.btn, e.act) == (2, 1, 3)).fn == 0x05
 
@@ -146,12 +148,86 @@ def test_hold_cycle_switches(win):
     win.cycle_switches[model.ANC_OFF].set_active(True)
     assert pump(lambda: sim(win).hold_cycle == model.ANC_OFF | model.ANC_MAX | model.ANC_TRANSPARENCY)
     win.cycle_switches[model.ANC_TRANSPARENCY].set_active(False)
+    assert pump(lambda: sim(win).hold_cycle == model.ANC_OFF | model.ANC_MAX)
+    # realme Link needs two modes: dropping to one is refused and the switch goes back
     win.cycle_switches[model.ANC_MAX].set_active(False)
-    assert pump(lambda: sim(win).hold_cycle == model.ANC_OFF)
-    # turning the last one off is refused and the switch goes back
-    win.cycle_switches[model.ANC_OFF].set_active(False)
-    assert pump(lambda: win.cycle_switches[model.ANC_OFF].get_active())
-    assert sim(win).hold_cycle == model.ANC_OFF
+    assert pump(lambda: win.cycle_switches[model.ANC_MAX].get_active())
+    assert sim(win).hold_cycle == model.ANC_OFF | model.ANC_MAX
+
+
+def test_gesture_rows_offer_only_what_the_app_offers(win):
+    for (side, act), row in win.gesture_rows.items():
+        codes = win._gesture_fns[(side, act)]
+        assert set(model.GESTURE_OPTIONS[act]) <= set(codes)
+        assert row.get_model().get_n_items() == len(codes)
+
+
+def test_fit_test_dialog(win):
+    dlg = FitTestDialog(win)
+    dlg.start()
+    assert pump(lambda: dlg.result.get_label() != "")
+    assert dlg.result.get_label() == "Left bud: good seal\nRight bud: good seal"
+    assert sim(win).fit_started >= 1
+    sim(win).fit_result = (3, 3)
+    dlg.start()
+    assert pump(lambda: "try again" in dlg.info.get_label())
+
+
+def test_golden_sound_section_and_switch(win):
+    assert win.golden_group.get_visible() and win.golden_switch.get_visible()
+    win.golden_switch.set_active(True)
+    assert pump(lambda: sim(win).features[0x0B] is True)
+    win.golden_switch.set_active(False)
+    assert pump(lambda: sim(win).features[0x0B] is False)
+
+
+def test_hearing_test_wizard_end_to_end(win):
+    stops = model.HEARING_STOPS
+    dlg = HearingTestDialog(win)
+    dlg.present()
+    assert dlg.stack.get_visible_child_name() == "intro"
+    dlg.start()
+    assert pump(lambda: dlg.stack.get_visible_child_name() == "test")
+    assert sim(win).test_active and dlg.scan is not None and dlg.scan.data == sim(win).ear_scan_bytes
+    assert sim(win).tones[-1] == (1, 1, model.HEARING_START_DB)  # starts quiet
+
+    # moving the slider plays the new level after a short pause
+    dlg.scale.set_value(stops.index(-35))
+    assert pump(lambda: (1, 1, -35) in sim(win).tones)
+
+    # a loud level is held back until it is confirmed
+    before = len(sim(win).tones)
+    dlg.scale.set_value(stops.index(10))
+    assert pump(lambda: dlg.scale.get_value() == stops.index(-35)) or dlg.scale.get_value() == stops.index(-35)
+    pump(lambda: False, 0.6)
+    assert all(t[2] < model.HEARING_LOUD_WARNING_DB for t in sim(win).tones[before:])
+
+    for _ in model.HEARING_NODES:
+        dlg.next_node()
+    assert dlg.stack.get_visible_child_name() == "save"
+    assert pump(lambda: not sim(win).test_active)
+    assert len(dlg.results) == 12 and dlg.results[0] == (1, 1, -35)
+
+    dlg.name_entry.set_text("GUI test")
+    dlg.save()
+    assert pump(lambda: sim(win).hearing_record is not None)
+    entries, uid, name = sim(win).hearing_record
+    assert name == "GUI test" and len(entries) == 12 and uid == dlg.uid
+    assert sim(win).scan_data == sim(win).ear_scan_bytes and sim(win).features[0x0B] is True
+    assert pump(lambda: dlg.stack.get_visible_child_name() == "message")
+    assert pump(lambda: "GUI test" in win.profile_row.get_subtitle())
+    assert win.golden_switch.get_active()
+    dlg.dialog.close()
+
+
+def test_closing_the_wizard_stops_the_test(win):
+    dlg = HearingTestDialog(win)
+    dlg.present()
+    dlg.start()
+    assert pump(lambda: dlg.stack.get_visible_child_name() == "test")
+    assert sim(win).test_active
+    dlg.dialog.close()
+    assert pump(lambda: not sim(win).test_active)
 
 
 def test_refused_write_puts_the_widgets_back(win):

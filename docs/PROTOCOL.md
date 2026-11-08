@@ -203,7 +203,46 @@ List `0x0122` -> `00 <n>` then `<active> <gmin> <gmax> <id> <nameLen> <name> <nB
 3 delete. The firmware accepts any centre frequency but limits gain to +-6 dB. The app
 only offers 62/250/1k/4k/8k/16k Hz.
 
+## Earbud fit test
+
+All from realme Link's code (`setCompactnessDetectionAction`, `CompactnessDetectDialog`).
+
+- Start `0x0405 01`, stop `0x0405 00`. Both buds must be in an ear.
+- The result is a push `04 <side> <status> <side> <status>` (side 1 left, 2 right). The app
+  dispatches any push by its first byte, so it works even when the buds did not list event 4
+  among their offered events. The Air7 Pro lists only 1 and 2, so this client also sends
+  `0x0201 04` (the app's single-event registration) before starting; the buds may ignore it.
+- Status as the app reads it: `1` good, `0` average, `2`/`3` failed (retry), `4` a bud was
+  removed, `5` interrupted by the app (ignored, keep waiting), anything else such as `6` shows as poor.
+
+## Golden Sound (the app calls it HearId)
+
+Everything below is read from `goldenhearid/*` and `TLHeadsetConnectionImp` in realme Link, and agrees
+with what other projects captured from HeyMelody. **Not yet tried on real Air7 Pro buds.**
+
+| Step | Frame |
+| --- | --- |
+| Switch on/off | `0x0403 0B 01/00` (the app's `switchHearIdFeature`) |
+| Read the stored profile | `0x0115` -> `00 <type> <count> (<side> <band> <db s8>)*count <id u32 BE> <name>` |
+| Ear scan | start `0x040D 04 01 <id u32 BE>`; result push `0E <action> <len u16 LE> <168 data bytes> <id>`; stop `04 00 <id>` |
+| Hearing test on/off | `0x040D 02 01` / `0x040D 02 00` |
+| Play a tone | `0x040E 03 01 <side> <band> <db s8>`; stop it with `0x040E 04` (sent before each new level) |
+| Apply | `0x0411 01 01 01 00 0B` (restore data), `0x040E 03 <n> <n x (side band db)> <id u32 BE> <name>`, `0x0415 03 <len u16 LE> <scan data> <id>`, then `0x0403 0B 01` |
+
+The test visits left-ear bands 1 to 6, then right-ear bands 1 to 6, starting at -25 dB. The slider has
+25 stops (-120 -88 -55 -52 -49 -45 -41 -38 -35 -30 -25 -22 -19 -15 -11 -8 -5 -1 3 5 7 10 13 15 17),
+and the stored value is the stop snapped to the nearest of -55 -49 -41 -35 -25 -19 -11 -5 3 7 13 17.
+The app warns before levels of 10 dB and above. The buds keep only the active profile.
+
+## Per-gesture options on the Air7 Pro
+
+From realme Link's model data for product id `064C12` (published by QuickBuds, confirmed by an
+Air7 Pro owner there): double tap accepts none, play/pause, voice assistant, next. Triple tap accepts
+none, voice assistant, previous, next, game mode. Touch-and-hold accepts none, voice assistant,
+noise-control cycle, game mode, and the cycle needs at least two modes. The EQ presets for this model are
+ids 0 to 3 (Pure Raw, Deep Bass, Pure Voice, Pure Bass) from the same data.
+
 ## Not implemented on purpose
 
-MindFlow and AI Translate (they depend on the phone app), Golden Sound hearing profile,
-fit test, firmware update, personalised ANC, and the on-call gesture group.
+MindFlow and AI Translate (they depend on the phone app), firmware update, personalised ANC,
+saving several Golden Sound profiles, and the on-call gesture group.

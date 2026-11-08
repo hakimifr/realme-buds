@@ -360,10 +360,12 @@ class Buds:
             ("eq", self.read_eq),
             ("custom-eq", self.read_custom_eqs),
             ("dynamic-audio", self.read_dynamic_audio),
+            ("hearing-record", self.read_hearing_record),
         ]
         optional = {
             "custom-eq": self.supports(protocol.CMD_CUSTOM_EQ_LIST),
             "dynamic-audio": self.supports(protocol.CMD_DYNAMIC_AUDIO_BANDS) or self.supports(protocol.CMD_DYNAMIC_AUDIO_SINGLE),
+            "hearing-record": self.supports(protocol.CMD_HEARING_RECORD),
         }
         for name, fn in steps:
             if not optional.get(name, True):
